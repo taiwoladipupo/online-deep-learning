@@ -46,6 +46,7 @@ def train(
     # create loss function and optimizer
     loss_func = ClassificationLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
     global_step = 0
     metrics = {"train_acc": [], "val_acc": []}
@@ -87,6 +88,7 @@ def train(
                 pred = model(img)
                 pred = torch.argmax(pred, dim=1)
                 val_acc = (pred == label).float().mean().item()
+                metrics["val_acc"].append(val_acc)
         # log average train and val accuracy to tensorboard
         epoch_train_acc = torch.as_tensor(metrics["train_acc"]).mean()
         epoch_val_acc = torch.as_tensor(metrics["val_acc"]).mean()
@@ -101,6 +103,7 @@ def train(
                 f"train_acc={epoch_train_acc:.4f} "
                 f"val_acc={epoch_val_acc:.4f}"
             )
+        #scheduler.step()
 
     # save and overwrite the model in the root directory for grading
     save_model(model)
