@@ -26,8 +26,23 @@ class Classifier(nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # TODO: implement
-        pass
+        # Convolutional layers
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=1, padding=1)
+        self.batch1 = nn.BatchNorm2d(32)
+
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.batch2 = nn.BatchNorm2d(64)
+
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.batch3 = nn.BatchNorm2d(128)
+
+        self.conv4 = nn.Conv2d(128, num_classes, kernel_size=1, stride=1, padding=1)
+
+        # Adding Activation and max pooling layers
+        self.relu = nn.ReLU()
+        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -39,9 +54,21 @@ class Classifier(nn.Module):
         """
         # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
+        # First convolutional block
+        z = self.maxPool(self.relu(self.batch1(self.conv1(z))))
+
+        # Second convolutional block
+        z = self.maxPool(self.relu(self.batch2(self.conv2(z))))
+
+        # third convolutional block
+        z = self.maxPool(self.relu(self.batch3(self.conv3(z))))
+
+        # We then apply global average pooling to reduce spatial dimensions to 1x1
+        z = self.global_pool(z)
 
         # TODO: replace with actual forward pass
-        logits = torch.randn(x.size(0), 6)
+        # Apply the final convolutional layer
+        logits = self.conv4(z).squeeze(-1).squeeze(-1)
 
         return logits
 
