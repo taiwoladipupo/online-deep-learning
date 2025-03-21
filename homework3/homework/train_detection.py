@@ -115,7 +115,7 @@ def train(
 
             for batch in val_data:
                 img = batch['image'].to(device)
-                label = batch['label'].to(device)
+                label = batch['track'].to(device)
                 depth_true = batch['depth'].to(device)
 
                 # compute validation accuracy
