@@ -53,17 +53,3 @@ def compute_accuracy(outputs: torch.Tensor, labels: torch.Tensor):
 
     return (outputs_idx == labels).float().mean()
 
-class ClassificationLoss(nn.Module):
-    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
-        """
-        Multi-class classification loss
-        Hint: simple one-liner
-
-        Args:
-            logits: tensor (b, c) logits, where c is the number of classes
-            target: tensor (b,) labels
-
-        Returns:
-            tensor, scalar loss
-        """
-        return nn.functional.cross_entropy(logits, target)
