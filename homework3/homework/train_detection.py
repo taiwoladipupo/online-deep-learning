@@ -68,7 +68,7 @@ def train(
     # val_data = load_data("classification_data/val", shuffle=False)
 
 
-    train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size,
+    train_data = load_data("drive_data/train", transform_pipeline="default", shuffle=True, batch_size=batch_size,
                            num_workers=2)
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
