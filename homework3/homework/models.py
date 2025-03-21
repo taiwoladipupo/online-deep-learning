@@ -26,16 +26,19 @@ class Classifier(nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # Convolutional layers
+        # Convolutional layers first block
         self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1)
         self.batch1 = nn.BatchNorm2d(64)
 
+        # Second block
         self.conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.batch2 = nn.BatchNorm2d(128)
 
+        # Third block
         self.conv3 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)
         self.batch3 = nn.BatchNorm2d(256)
 
+        # Final block
         self.conv4 = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
 
         # Adding Activation and max pooling layers
