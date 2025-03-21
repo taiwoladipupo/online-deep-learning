@@ -36,7 +36,7 @@ class Classifier(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.batch3 = nn.BatchNorm2d(128)
 
-        self.conv4 = nn.Conv2d(128, num_classes, kernel_size=1, stride=1, padding=1)
+        self.conv4 = nn.Conv2d(128, num_classes, kernel_size=1, stride=1)
 
         # Adding Activation and max pooling layers
         self.relu = nn.ReLU()
