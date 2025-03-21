@@ -16,6 +16,9 @@ from .datasets.road_dataset import load_data
 class CombinedLoss(nn.Module):
     def __init__(self):
         super(CombinedLoss, self).__init__()
+        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=0.1, reduction='mean')
+        self.l1_loss = nn.L1Loss(reduction='mean')
+        self.depth_weight = 0.3 # weight for depth loss
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         """
@@ -29,9 +32,10 @@ class CombinedLoss(nn.Module):
         Returns:
             tensor, segmantation loss + regression loss
         """
-        segmentation_loss = nn.functional.cross_entropy(logits, target)
-        regression_loss = nn.functional.mse_loss(depth_pred, depth_true)
-        return segmentation_loss + regression_loss
+        segmentation_loss = self.ce_loss(logits, target)
+        depth_loss = self.l1_loss(depth_pred, depth_true)
+        return segmentation_loss + self.depth_weight * depth_loss
+
 
 
 def train(
@@ -108,6 +112,7 @@ def train(
             metrics["train_acc"].append(loss_val.item())
 
             global_step += 1
+            logger.add_scalar("train/total_loss", loss_val.item(), global_step)
 
         # disable gradient computation and switch to evaluation mode
         with torch.inference_mode():
