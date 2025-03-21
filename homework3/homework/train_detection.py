@@ -89,8 +89,9 @@ def train(
         model.train()
 
         for batch in train_data:
+            print(batch.keys())
             img = batch['image'].to(device)
-            label = batch['label'].to(device)
+            label = batch['track'].to(device)
             depth_true = batch['depth'].to(device)
 
             # Training step
