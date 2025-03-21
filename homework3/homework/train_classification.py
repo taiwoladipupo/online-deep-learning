@@ -27,7 +27,7 @@ class ClassificationLoss(nn.Module):
         Returns:
             tensor, scalar loss
         """
-        return nn.functional.cross_entropy(logits, target)
+        return nn.functional.cross_entropy(logits, target, label_smoothing=0.1)
 
 
 def train(

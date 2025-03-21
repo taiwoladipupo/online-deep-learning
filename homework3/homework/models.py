@@ -45,7 +45,7 @@ class Classifier(nn.Module):
         self.relu = nn.ReLU()
         self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout = nn.Dropout(0.2) # To reduce overfitting
+        self.dropout = nn.Dropout(0.3) # To reduce overfitting
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

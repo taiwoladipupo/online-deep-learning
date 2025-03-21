@@ -75,7 +75,7 @@ def train(
     # create loss function and optimizer
     loss_func = CombinedLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
     global_step = 0
     metrics = {"train_acc": [], "val_acc": []}
@@ -137,7 +137,7 @@ def train(
                 f"train_acc={epoch_train_acc:.4f} "
                 f"val_acc={epoch_val_acc:.4f}"
             )
-        #scheduler.step()
+        scheduler.step()
 
     # save and overwrite the model in the root directory for grading
     save_model(model)
