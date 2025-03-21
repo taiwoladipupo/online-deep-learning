@@ -8,7 +8,7 @@ import torch.utils.tensorboard as tb
 from torch import nn
 
 from .models import  load_model, save_model
-from .utils import load_data
+from .datasets.classification_dataset import load_data
 
 
 class ClassificationLoss(nn.Module):
