@@ -27,13 +27,13 @@ class Classifier(nn.Module):
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
         # Convolutional layers
-        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=1, padding=1)
-        self.batch1 = nn.BatchNorm2d(32)
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1)
+        self.batch1 = nn.BatchNorm2d(64)
 
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
-        self.batch2 = nn.BatchNorm2d(64)
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.batch2 = nn.BatchNorm2d(128)
 
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)
         self.batch3 = nn.BatchNorm2d(128)
 
         self.conv4 = nn.Conv2d(128, num_classes, kernel_size=1, stride=1)
@@ -42,6 +42,7 @@ class Classifier(nn.Module):
         self.relu = nn.ReLU()
         self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(0.2) # To reduce overfitting
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -65,6 +66,7 @@ class Classifier(nn.Module):
 
         # We then apply global average pooling to reduce spatial dimensions to 1x1
         z = self.global_pool(z)
+        z =self.dropout(z)
 
         # TODO: replace with actual forward pass
         # Apply the final convolutional layer
