@@ -111,7 +111,14 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
         # TODO: implement
-        pass
+        self.down1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1)
+        self.down2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
+        self.up1 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1) # Up sampling
+        self.up2 = nn.ConvTranspose2d(16, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
+
+        self.logits = nn.Conv2d(16, num_classes, kernel_size=1)
+        self.depth = nn.Conv2d(16, 1, kernel_size=1)
+
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -128,10 +135,18 @@ class Detector(torch.nn.Module):
         """
         # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
+        # Down sampling to reduce spatial dimensions
+        z = torch.relu(self.down1(z))
+        z = torch.relu(self.down2(z))
+
+        # Up Sampling return to original size
+        z = torch.relu(self.up1(z))
+        z = torch.relu(self.up2(z))
 
         # TODO: replace with actual forward pass
-        logits = torch.randn(x.size(0), 3, x.size(2), x.size(3))
-        raw_depth = torch.rand(x.size(0), x.size(2), x.size(3))
+        logits = self.logits(z)
+        raw_depth = self.depth(z).squeeze(1)
+
 
         return logits, raw_depth
 

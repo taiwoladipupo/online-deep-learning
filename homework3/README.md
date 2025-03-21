@@ -116,7 +116,8 @@ Your `forward` function receives a `(B, 3, 96, 128)` image tensor as an input an
 - `(B, 3, 96, 128)` logits for the 3 classes
 - `(B, 96, 128)` tensor of depths.
 
-Use a series of convolutions to gradually reduce the spatial dimensions of the input while increasing the number of channels, then use up-convolutions `(torch.nn.Conv2dTranspose)` to recover the original spatial dimensions.
+Use a series of convolutions to gradually reduce the spatial dimensions of the input while increasing the number of channels, 
+then use up-convolutions `(torch.nn.Conv2dTranspose)` to recover the original spatial dimensions.
 Here's an example of how the intermediate layer outputs shapes would look like:
 ```
 Input   (b,  3,     h,     w)    input image
