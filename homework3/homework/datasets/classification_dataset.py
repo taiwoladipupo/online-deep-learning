@@ -39,7 +39,7 @@ class SuperTuxDataset(Dataset):
             xform = transforms.Compose(
                 [
                     # TODO: fix
-                    # transforms.ColorJitter(0.9, 0.9, 0.9, 0.1),
+                    transforms.ColorJitter(0.2, 0.92, 0.2),
                     transforms.RandomHorizontalFlip(),
                     transforms.RandomRotation(15),
                     transforms.RandomResizedCrop(64, scale=(0.8, 1.0)),
