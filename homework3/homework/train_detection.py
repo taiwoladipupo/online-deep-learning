@@ -169,9 +169,13 @@ def train(
         miou = confusion_matrix.compute()
 
         #understaanding which class is affecting iou
-        # print(f"miou: {miou['iou']: .3f}")
-        for i, class_iou in enumerate(miou['iou']):
-            print(f"Class {i} IoU: {class_iou:.3f}")
+        if isinstance(miou['iou'], list):
+
+            # print(f"miou: {miou['iou']: .3f}")
+            for i, class_iou in enumerate(miou['iou']):
+                print(f"Class {i} IoU: {class_iou:.3f}")
+        else:
+            print(f"miou: {miou['iou']: .3f}")
         confusion_matrix.reset()
         print(f"mIou: {miou}")
         logger.add_scalar("val/miou", miou["iou"], epoch)
