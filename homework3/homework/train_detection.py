@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.utils.tensorboard as tb
 from torch import nn
-
+from torch.cuda import device
 
 from .models import  load_model, save_model
 # couldn't find the prescribe datasets in read me, so I will use the following datasets
@@ -18,7 +18,7 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self):
         super(CombinedLoss, self).__init__()
-        self.ce_loss = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 2.0]))
+        self.ce_loss = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 2.0]).to(device))
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
         self.depth_weight = 0.3 # weight for depth loss
@@ -99,7 +99,7 @@ def train(
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
     # create loss function and optimizer
-    loss_func = CombinedLoss()
+    loss_func = CombinedLoss(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
