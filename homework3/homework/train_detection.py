@@ -16,8 +16,8 @@ from .datasets.road_dataset import load_data
 class CombinedLoss(nn.Module):
     def __init__(self):
         super(CombinedLoss, self).__init__()
-        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=0.1, reduction='mean')
-        self.l1_loss = nn.L1Loss(reduction='mean')
+        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=0.1)
+        self.l1_loss = nn.L1Loss()
         self.depth_weight = 0.3 # weight for depth loss
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
@@ -35,7 +35,17 @@ class CombinedLoss(nn.Module):
         """
         segmentation_loss = self.ce_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
-        return segmentation_loss + self.depth_weight * depth_loss
+        dice_loss = DiceLoss(logits, target)
+        return segmentation_loss + self.depth_weight + dice_loss * depth_loss
+
+class DiceLoss(nn.Module):
+    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
+        probs = torch.softmax(logits, dim=1)
+        pred = probs.argmax(dim=1)
+
+        intersection = ((pred == target) & (target >  0)).float().sum()
+        union =  ((pred > 0) | (target > 0)).float().sum()
+        return 1 - (2 * intersection + 1e-6) / (union + intersection + 1e-6)
 
 
 
@@ -80,7 +90,7 @@ def train(
     # create loss function and optimizer
     loss_func = CombinedLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
     global_step = 0
     metrics = {"train_acc": [], "val_acc": []}
@@ -150,7 +160,7 @@ def train(
                 f"train_acc={epoch_train_acc:.4f} "
                 f"val_acc={epoch_val_acc:.4f}"
             )
-        scheduler.step()
+        #scheduler.step()
 
     # save and overwrite the model in the root directory for grading
     save_model(model)
