@@ -169,10 +169,7 @@ def train(
         miou = confusion_matrix.compute()
 
         #understaanding which class is affecting iou
-        for i, class_iou in enumerate(miou['iou']):
-            print(f"Class {i} IoU: {class_iou: .3f}")
-        confusion_matrix.reset()
-        print(f"miou: {miou}")
+        print(f"miou: {miou['iou']: .3f}")
 
         logger.add_scalar("val/miou", miou["iou"], epoch)
         logger.add_scalar("val/seg_accuracy", miou["accuracy"], epoch)
