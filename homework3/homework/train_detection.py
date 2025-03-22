@@ -16,13 +16,16 @@ from .metrics import ConfusionMatrix
 
 
 class CombinedLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
         self.ce_loss = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 2.0]).to(device))
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
         self.depth_weight = 0.3 # weight for depth loss
         self.dice_weight = 2.0 # weight for dice loss
+
+        if device:
+            self.to(device)
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         """
