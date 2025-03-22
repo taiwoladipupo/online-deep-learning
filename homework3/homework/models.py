@@ -121,8 +121,8 @@ class Detector(torch.nn.Module):
         self.up3 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
         self.up4 = nn.ConvTranspose2d(16, 8, kernel_size=3, stride=2, padding=1, output_padding=1)
 
-        self.logits = nn.Conv2d(16, num_classes, kernel_size=1)
-        self.depth = nn.Conv2d(16, 1, kernel_size=1)
+        self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
+        self.depth = nn.Conv2d(8, 1, kernel_size=1)
 
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
