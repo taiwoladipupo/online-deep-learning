@@ -142,7 +142,7 @@ def train(
                 print(f"  logits shape: {logits.shape}, min: {logits.min().item()}, max: {logits.max().item()}")
                 print(f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
             # Initialize confusion matrix
-            confusion_matrix = ConfusionMatrix(num_classes=3)
+        confusion_matrix = ConfusionMatrix(num_classes=3)
 
         # disable gradient computation and switch to evaluation mode
         with torch.inference_mode():
