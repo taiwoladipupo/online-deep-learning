@@ -39,6 +39,16 @@ class RoadDataset(Dataset):
                 ]
             )
         elif transform_pipeline == "aug":
+            xform = road_transforms.Compose(
+                [
+                    road_transforms.ImageLoader(self.episode_path),
+                    road_transforms.DepthLoader(self.episode_path),
+                    road_transforms.TrackProcessor(self.track),
+                    road_transforms.RandomHorizontalFlip(),
+                    road_transforms.RandomRotation(10),
+                    road_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                ]
+            )
             pass
 
         if xform is None:
