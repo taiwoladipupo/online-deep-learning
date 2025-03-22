@@ -18,7 +18,9 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        self.ce_loss = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 2.0]).to(device))
+        # After noticing that mIOU is low, I decided to use weighted cross entropy loss
+        class_weights = torch.tensor([1.0, 2.0, 2.0], device=device)
+        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
         self.depth_weight = 0.1 # weight for depth loss
