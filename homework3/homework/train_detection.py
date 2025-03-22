@@ -44,6 +44,9 @@ class CombinedLoss(nn.Module):
         """
         segmentation_loss = self.ce_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
+
+        #Debugging loss values
+        print(f"Losses: CE={segmentation_loss.item():.4f}, L1={depth_loss.item():.4f}")
         # dice_loss = self.dice_loss(logits, target)
         return segmentation_loss + self.depth_weight * depth_loss
 
