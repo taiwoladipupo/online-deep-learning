@@ -272,10 +272,11 @@ class RandomRotation:
 
     def __call__(self, sample):
         angle = random.uniform(-self.degrees, self.degrees)
-        sample['image'] = sample['image'].rotate(angle)
-        sample['depth'] = sample['depth'].rotate(angle)
+        sample['image'] = Image.fromarray((sample['image'] * 255).astype(np.uint8)).rotate(angle)
+        sample['image'] = np.array(sample['image']) / 255.0
+        sample['depth'] = Image.fromarray((sample['depth'] * 65535).astype(np.uint16)).rotate(angle)
+        sample['depth'] = np.array(sample['depth']) / 65535.0
         return sample
-
 class ColorJitter:
     def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
         self.transform = TorchColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
