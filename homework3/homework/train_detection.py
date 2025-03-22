@@ -18,7 +18,9 @@ class CombinedLoss(nn.Module):
         super(CombinedLoss, self).__init__()
         self.ce_loss = nn.CrossEntropyLoss(label_smoothing=0.1)
         self.l1_loss = nn.L1Loss()
+        self.dice_loss = DiceLoss()
         self.depth_weight = 0.3 # weight for depth loss
+        self.dice_weight = 1.0 # weight for dice loss
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         """
@@ -35,17 +37,24 @@ class CombinedLoss(nn.Module):
         """
         segmentation_loss = self.ce_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
-        dice_loss = DiceLoss(logits, target)
-        return segmentation_loss + self.depth_weight + dice_loss * depth_loss
+        dice_loss = self.dice_loss(logits, target)
+        return segmentation_loss + self.dice_weight * dice_loss + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
-    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
-        probs = torch.softmax(logits, dim=1)
-        pred = probs.argmax(dim=1)
+    def __init__(self, smooth=1e-6):
+        super().__init__()
+        self.smooth = smooth
 
-        intersection = ((pred == target) & (target >  0)).float().sum()
-        union =  ((pred > 0) | (target > 0)).float().sum()
-        return 1 - (2 * intersection + 1e-6) / (union + intersection + 1e-6)
+    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
+        probs = torch.softmax(logits, dim=1)           # (B, C, H, W)
+        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])  # (B, H, W, C)
+        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()                        # (B, C, H, W)
+
+        intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
+        union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
+
+        dice = (2. * intersection + self.smooth) / (union + self.smooth)
+        return 1 - dice.mean()
 
 
 
