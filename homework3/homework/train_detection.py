@@ -11,7 +11,7 @@ from .models import  load_model, save_model
 # couldn't find the prescribe datasets in read me, so I will use the following datasets
 from .datasets.road_dataset import load_data
 # from .utils import load_data
-from metrics import ConfusionMatrix
+from .metrics import ConfusionMatrix
 
 
 class CombinedLoss(nn.Module):
