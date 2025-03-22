@@ -31,6 +31,7 @@ class CombinedLoss(nn.Module):
 
         Returns:
             tensor, segmantation loss + regression loss
+
         """
         segmentation_loss = self.ce_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
@@ -113,6 +114,13 @@ def train(
 
             global_step += 1
             logger.add_scalar("train/total_loss", loss_val.item(), global_step)
+
+            # Print shapes min/ma values
+            if global_step % 10 == 0:
+                print(f"Step {global_step}:")
+                print(f"  img shape: {img.shape}, min: {img.min().item()}, max: {img.max().item()}")
+                print(f"  logits shape: {logits.shape}, min: {logits.min().item()}, max: {logits.max().item()}")
+                print(f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
 
         # disable gradient computation and switch to evaluation mode
         with torch.inference_mode():
