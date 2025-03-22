@@ -11,6 +11,7 @@ from .models import  load_model, save_model
 # couldn't find the prescribe datasets in read me, so I will use the following datasets
 from .datasets.road_dataset import load_data
 # from .utils import load_data
+from metrics import ConfusionMatrix
 
 
 class CombinedLoss(nn.Module):
@@ -140,6 +141,8 @@ def train(
                 print(f"  img shape: {img.shape}, min: {img.min().item()}, max: {img.max().item()}")
                 print(f"  logits shape: {logits.shape}, min: {logits.min().item()}, max: {logits.max().item()}")
                 print(f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
+            # Initialize confusion matrix
+            confusion_matrix = ConfusionMatrix(num_classes=3)
 
         # disable gradient computation and switch to evaluation mode
         with torch.inference_mode():
@@ -154,6 +157,15 @@ def train(
                 logits, depth_pred = model(img)
                 val_loss = loss_func(logits, label, depth_pred, depth_true)
                 metrics["val_acc"].append(val_loss.item())
+
+                # confusion matrix
+                pred = logits.argmax(dim=1)
+                confusion_matrix.update(pred, label)
+        # calculate mIou
+        miou = confusion_matrix.compute_mean_iou()
+        print(f"miou: {miou}")
+
+        logger.add_scalar("val/miou", miou, epoch)
 
         # log average train and val accuracy to tensorboard
         epoch_train_acc = torch.as_tensor(metrics["train_acc"]).mean()
