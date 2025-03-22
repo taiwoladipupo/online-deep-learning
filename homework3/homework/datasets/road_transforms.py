@@ -294,5 +294,10 @@ class ColorJitter:
         self.transform = TorchColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
 
     def __call__(self, sample):
-        sample['image'] = self.transform(sample['image'])
+        # Convert numpy array to PIL Image
+        image = Image.fromarray((sample['image'] * 255).astype(np.uint8).transpose(1, 2, 0))
+        # Apply ColorJitter transformation
+        image = self.transform(image)
+        # Convert PIL Image back to numpy array
+        sample['image'] = np.array(image).transpose(2, 0, 1) / 255.0
         return sample
