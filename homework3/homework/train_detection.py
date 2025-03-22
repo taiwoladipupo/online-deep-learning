@@ -21,7 +21,7 @@ class CombinedLoss(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 2.0]).to(device))
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
-        self.depth_weight = 0.3 # weight for depth loss
+        self.depth_weight = 0.1 # weight for depth loss
         self.dice_weight = 2.0 # weight for dice loss
 
         if device:
@@ -169,8 +169,11 @@ def train(
         miou = confusion_matrix.compute()
 
         #understaanding which class is affecting iou
-        print(f"miou: {miou['iou']: .3f}")
-
+        # print(f"miou: {miou['iou']: .3f}")
+        for i, class_iou in enumerate(miou['iou']):
+            print(f"Class {i} IoU: {class_iou:.3f}")
+        confusion_matrix.reset()
+        print(f"mIou: {miou}")
         logger.add_scalar("val/miou", miou["iou"], epoch)
         logger.add_scalar("val/seg_accuracy", miou["accuracy"], epoch)
 
