@@ -7,6 +7,7 @@ import torch
 import torch.utils.tensorboard as tb
 from torch import nn
 
+
 from .models import  load_model, save_model
 # couldn't find the prescribe datasets in read me, so I will use the following datasets
 from .datasets.road_dataset import load_data
@@ -17,11 +18,11 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self):
         super(CombinedLoss, self).__init__()
-        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=0.1)
+        self.ce_loss = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 2.0]))
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
         self.depth_weight = 0.3 # weight for depth loss
-        self.dice_weight = 1.0 # weight for dice loss
+        self.dice_weight = 2.0 # weight for dice loss
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         """
@@ -163,6 +164,10 @@ def train(
                 confusion_matrix.add(pred, label)
         # calculate mIou
         miou = confusion_matrix.compute()
+
+        #understaanding which class is affecting iou
+        for i, class_iou in enumerate(miou['iou']):
+            print(f"Class {i} IoU: {class_iou: .3f}")
         confusion_matrix.reset()
         print(f"miou: {miou}")
 
