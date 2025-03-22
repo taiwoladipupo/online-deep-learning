@@ -163,9 +163,11 @@ def train(
                 confusion_matrix.add(pred, label)
         # calculate mIou
         miou = confusion_matrix.compute()
+        confusion_matrix.reset()
         print(f"miou: {miou}")
 
-        logger.add_scalar("val/miou", miou, epoch)
+        logger.add_scalar("val/miou", miou["iou"], epoch)
+        logger.add_scalar("val/seg_accuracy", miou["accuracy"], epoch)
 
         # log average train and val accuracy to tensorboard
         epoch_train_acc = torch.as_tensor(metrics["train_acc"]).mean()
