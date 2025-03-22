@@ -160,9 +160,9 @@ def train(
 
                 # confusion matrix
                 pred = logits.argmax(dim=1)
-                confusion_matrix.update(pred, label)
+                confusion_matrix.add(pred, label)
         # calculate mIou
-        miou = confusion_matrix.compute_mean_iou()
+        miou = confusion_matrix.compute()
         print(f"miou: {miou}")
 
         logger.add_scalar("val/miou", miou, epoch)
