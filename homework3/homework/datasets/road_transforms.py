@@ -266,17 +266,29 @@ class EgoTrackProcessor:
             "waypoints_mask": waypoints_mask,
         }
 
+
 class RandomRotation:
     def __init__(self, degrees):
         self.degrees = degrees
 
     def __call__(self, sample):
         angle = random.uniform(-self.degrees, self.degrees)
-        sample['image'] = Image.fromarray((sample['image'] * 255).astype(np.uint8)).rotate(angle)
-        sample['image'] = np.array(sample['image']) / 255.0
-        sample['depth'] = Image.fromarray((sample['depth'] * 65535).astype(np.uint16)).rotate(angle)
-        sample['depth'] = np.array(sample['depth']) / 65535.0
+
+        # Ensure the image has the correct shape and data type
+        image = (sample['image'] * 255).astype(np.uint8)
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = image.transpose(1, 2, 0)  # Convert from (C, H, W) to (H, W, C)
+
+        image = Image.fromarray(image).rotate(angle)
+        sample['image'] = np.array(image).transpose(2, 0, 1) / 255.0  # Convert back to (C, H, W)
+
+        # Ensure the depth has the correct shape and data type
+        depth = (sample['depth'] * 65535).astype(np.uint16)
+        depth = Image.fromarray(depth).rotate(angle)
+        sample['depth'] = np.array(depth) / 65535.0
+
         return sample
+
 class ColorJitter:
     def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
         self.transform = TorchColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
