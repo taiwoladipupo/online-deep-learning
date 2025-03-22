@@ -10,6 +10,8 @@ Design pattern of the transforms:
 """
 
 from pathlib import Path
+from torchvision.transforms import ColorJitter as TorchColorJitter
+import random
 
 import cv2
 import numpy as np
@@ -263,3 +265,21 @@ class EgoTrackProcessor:
             "waypoints": waypoints.astype(np.float32),
             "waypoints_mask": waypoints_mask,
         }
+
+class RandomRotation:
+    def __init__(self, degrees):
+        self.degrees = degrees
+
+    def __call__(self, sample):
+        angle = random.uniform(-self.degrees, self.degrees)
+        sample['image'] = sample['image'].rotate(angle)
+        sample['depth'] = sample['depth'].rotate(angle)
+        return sample
+
+class ColorJitter:
+    def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
+        self.transform = TorchColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+
+    def __call__(self, sample):
+        sample['image'] = self.transform(sample['image'])
+        return sample

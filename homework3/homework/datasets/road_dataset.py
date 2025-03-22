@@ -5,6 +5,7 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 from . import road_transforms
 from .road_utils import Track
+from .road_transforms import RandomRotation
 
 
 class RoadDataset(Dataset):
@@ -39,7 +40,17 @@ class RoadDataset(Dataset):
                 ]
             )
         elif transform_pipeline == "aug":
-            pass
+            xform = road_transforms.Compose(
+                [
+                    road_transforms.ImageLoader(self.episode_path),
+                    road_transforms.DepthLoader(self.episode_path),
+                    road_transforms.TrackProcessor(self.track),
+                    road_transforms.RandomHorizontalFlip(),
+                    road_transforms.RandomRotation(10),
+                    road_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                ]
+            )
+
 
         if xform is None:
             raise ValueError(f"Invalid transform {transform_pipeline} specified!")
