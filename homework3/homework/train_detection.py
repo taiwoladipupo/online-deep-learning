@@ -168,14 +168,29 @@ def train(
         # calculate mIou
         miou = confusion_matrix.compute()
 
-        #understaanding which class is affecting iou
-        if isinstance(miou['iou'], list):
+        if hasattr(confusion_matrix, "matrix"):
+            matrix = confusion_matrix.matrix
+            tp = np.diag(matrix)
+            fp = matrix.sum(axis=0) - tp
+            fn = matrix.sum(axis=1) - tp
+            denom = tp + fp + fn
 
-            # print(f"miou: {miou['iou']: .3f}")
-            for i, class_iou in enumerate(miou['iou']):
+            iou_per_class = np.divide(tp, denom, out=np.zeros_like(tp, dtype=np.float32), where=denom != 0)
+
+            for i, class_iou in enumerate(iou_per_class):
                 print(f"Class {i} IoU: {class_iou:.3f}")
         else:
-            print(f"miou: {miou['iou']: .3f}")
+            print("Confusion matrix data not available.")
+        #
+        #
+        # #understaanding which class is affecting iou
+        # if isinstance(miou['iou'], list):
+        #
+        #     # print(f"miou: {miou['iou']: .3f}")
+        #     for i, class_iou in enumerate(miou['iou']):
+        #         print(f"Class {i} IoU: {class_iou:.3f}")
+        # else:
+        #     print(f"miou: {miou['iou']: .3f}")
         confusion_matrix.reset()
         print(f"mIou: {miou}")
         logger.add_scalar("val/miou", miou["iou"], epoch)
