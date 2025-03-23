@@ -33,7 +33,7 @@ class CombinedLoss(nn.Module):
         self.depth_weight = 0.05
 
         self.current_epoch = 0
-        self.total_epochs = 100
+        self.total_epochs = 25
 
         if device:
             self.to(device)
@@ -46,12 +46,12 @@ class CombinedLoss(nn.Module):
         # if self.current_epoch < 5:
         #     logits[:, 0, :, :] -= 4.0
         # else:
-        suppression = max(0.0, 1.5 - 1.2 * (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression
+        suppression = max(0.0, 1.5 - 1.0 * (self.current_epoch / self.total_epochs))
+        logits[:, 0, :, :] -= suppression * 0.4
 
-        boost = max(0.0, 1.0 - 1.0 * (self.current_epoch / (self.total_epochs / 2) ))
-        logits[:, 1, :, :] += boost * 1.5
-        logits[:, 2, :, :] += boost * 0.8
+        boost = max(0.0, 1.0 -  (self.current_epoch / (self.total_epochs / 2) ))
+        logits[:, 1, :, :] += boost * 1.2
+        logits[:, 2, :, :] += boost * 1.0
 
         probs = torch.softmax(logits, dim=1)
         background_conf = probs[:, 0, :, :].mean()
@@ -68,7 +68,7 @@ class CombinedLoss(nn.Module):
         # penalty = torch.tensor(0.0, device=logits.device)
         # if bg_ratio > 0.99:
         #     penalty = (bg_ratio - 0.99) * 10.0
-        segmentation_loss = seg_loss_fn(logits * 2.0, target)
+        segmentation_loss = self.seg_loss(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
 
         tversky_loss = self.tversky_loss(logits, target)
