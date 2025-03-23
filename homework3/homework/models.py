@@ -93,7 +93,7 @@ class Classifier(nn.Module):
         return self(x).argmax(dim=1)
 
 class RandomChannelDropout(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, channels=0.2):
         super().__init__()
         self.channels = channels
 
@@ -128,7 +128,7 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        self.channel_dropout = RandomChannelDropout(p=0.2)
+        self.channel_dropout = RandomChannelDropout()
 
         # TODO: implement
         # self.down1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1)
