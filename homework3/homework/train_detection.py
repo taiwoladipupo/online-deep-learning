@@ -23,11 +23,9 @@ class CombinedLoss(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
-        self.depth_weight = 0.1 # weight for depth loss
-        self.dice_weight = 3.0 # weight for dice loss
+        self.depth_weight = 0.05 # weight for depth loss
+        self.dice_weight = 1.0 # weight for dice loss
 
-        self.warmup_epochs= 5
-        self.current_epoch = 0
 
         if device:
             self.to(device)
@@ -157,7 +155,12 @@ def train(
                 print(f"Step {global_step}:")
                 print(f"  img shape: {img.shape}, min: {img.min().item()}, max: {img.max().item()}")
                 print(f"  logits shape: {logits.shape}, min: {logits.min().item()}, max: {logits.max().item()}")
-                print(f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
+                print(
+                    f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
+                pred = logits.argmax(dim=1)
+                unique_classes = torch.unique(pred)
+                print(f"  Predicted classes in batch: {unique_classes.tolist()}")
+                print(f"  Class counts: {torch.bincount(pred.view(-1)).cpu().numpy()}")
             # Initialize confusion matrix
         confusion_matrix = ConfusionMatrix(num_classes=3)
 
