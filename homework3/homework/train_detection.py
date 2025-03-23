@@ -1,7 +1,7 @@
 import argparse
 from datetime import datetime
 from pathlib import Path
-
+from collections import Counter
 import numpy as np
 import torch
 import torch.utils.tensorboard as tb
@@ -128,12 +128,16 @@ def train(
         model.train()
         loss_func.current_epoch = epoch
 
+        pixel_counter = Counter()
         for batch in train_data:
             # print(batch.keys())
             img = batch['image'].to(device)
             label = batch['track'].to(device)
             depth_true = batch['depth'].to(device)
             print("labels:",torch.unique(label))
+            unique, counts = torch.unique(label, return_counts=True)
+            for u,c in zip(unique.toList(), counts.toList()):
+                pixel_counter[u] += c
 
             # Training step
             logits, depth_pred = model(img) #  the model returns logits and depth
@@ -162,6 +166,7 @@ def train(
                 unique_classes = torch.unique(pred)
                 print(f"  Predicted classes in batch: {unique_classes.tolist()}")
                 print(f"  Class counts: {torch.bincount(pred.view(-1)).cpu().numpy()}")
+            print(f"  Pixel counts: {pixel_counter}")
             # Initialize confusion matrix
         confusion_matrix = ConfusionMatrix(num_classes=3)
 
