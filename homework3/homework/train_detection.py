@@ -33,7 +33,7 @@ class CombinedLoss(nn.Module):
         self.depth_weight = 0.05
 
         self.current_epoch = 0
-        self.total_epochs = 50
+        self.total_epochs = 100
 
         if device:
             self.to(device)
@@ -43,18 +43,20 @@ class CombinedLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # logits[:, 0, :, :] -= 0.5
-        # if self.current_epoch < 5:
-        #     suppression = 1.5 -0.2 * self.current_epoch
-        # elif self.current_epoch < 10:
-        #     suppression = 1.5 - 0.1 * self.current_epoch
-        # else:
-        #     suppression = 0.0
-        suppression = max(0.0, 1.5 - 1.3 * (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression
+        if self.current_epoch < 5:
+            logits[:, 0, :, :] -= 4.0
+        else:
+            suppression = max(0.0, 1.5 - 1.3 * (self.current_epoch / self.total_epochs))
+            logits[:, 0, :, :] -= suppression
 
         boost = max(0.0, 1.0 - 1.0 * (self.current_epoch / self.total_epochs //2))
         logits[:, 1, :, :] += boost
         logits[:, 2, :, :] += boost
+
+        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
+        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
+        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
+
 
         # with torch.no_grad():
         #     pred = torch.softmax(logits, dim=1)
@@ -62,7 +64,7 @@ class CombinedLoss(nn.Module):
         # penalty = torch.tensor(0.0, device=logits.device)
         # if bg_ratio > 0.99:
         #     penalty = (bg_ratio - 0.99) * 10.0
-        segmentation_loss = 0.7 * self.focal_loss(logits * 2.0, target) + 0.3 * self.dice_loss(logits, target)
+        segmentation_loss = seg_loss_fn(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         tversky_loss = self.tversky_loss(logits, target)
         dice_loss = self.dice_loss(logits, target)
