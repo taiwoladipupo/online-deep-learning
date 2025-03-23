@@ -203,7 +203,7 @@ class Detector(torch.nn.Module):
 
         # Up with skip connections
         u1 = self.up1(d4)
-        if u1.shape[-2:] != d3shape[-2:]:
+        if u1.shape[-2:] != d3.shape[-2:]:
             d3 = F.interpolate(d3, size= u1.shape[-2:], mode='bilinear', align_corners=False)   # -> (B, 64, H/8, W/8)
         u1 = torch.cat([u1, d3], dim=1)  # concat skip -> (B, 128, H/8, W/8)
 
