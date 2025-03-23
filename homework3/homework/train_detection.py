@@ -24,11 +24,18 @@ class CombinedLoss(nn.Module):
         class_weights = class_weights / class_weights.sum()
         class_weights = class_weights.to(device)
 
-        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
+        # self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
+        # self.l1_loss = nn.L1Loss()
+        # self.dice_loss = DiceLoss()
+        # self.depth_weight = 0.05 # weight for depth loss
+        # self.dice_weight = 1.0 # weight for dice loss
+
+        self.seg_loss = FocalLoss(alpha=class_weights)
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
-        self.depth_weight = 0.05 # weight for depth loss
-        self.dice_weight = 1.0 # weight for dice loss
+
+        self.depth_weight = 0.05
+
 
 
         if device:
@@ -47,7 +54,7 @@ class CombinedLoss(nn.Module):
             tensor, segmantation loss + regression loss
 
         """
-        segmentation_loss = self.ce_loss(logits, target)
+        segmentation_loss = self.seg_loss(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         dice_loss = self.dice_loss(logits, target)
 
@@ -72,7 +79,24 @@ class DiceLoss(nn.Module):
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
 
+    def forward(self, logits, target):
+        ce_loss = nn.CrossEntropyLoss(weight=self.alpha, reduction='none')(logits, target)
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
 
 def train(
         exp_dir: str = "logs",
