@@ -2,6 +2,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 HOMEWORK_DIR = Path(__file__).resolve().parent
 INPUT_MEAN = [0.2788, 0.2657, 0.2629]
@@ -201,13 +202,21 @@ class Detector(torch.nn.Module):
         d4 = self.down4(d3) # (B, 128, H/16, W/16)
 
         # Up with skip connections
-        u1 = self.up1(d4)                # -> (B, 64, H/8, W/8)
+        u1 = self.up1(d4)
+        if u1.shape[-2:] != d3shape[-2:]:
+            d3 = F.interpolate(d3, size= u1.shape[-2:], mode='bilinear', align_corners=False)   # -> (B, 64, H/8, W/8)
         u1 = torch.cat([u1, d3], dim=1)  # concat skip -> (B, 128, H/8, W/8)
 
-        u2 = self.up2(u1)                # -> (B, 32, H/4, W/4)
+        u2 = self.up2(u1)
+        if u2.shape[-2:] != d2.shape[-2:]:
+            d2 = F.interpolate(d3, size=u1.shape[-2:], mode='bilinear', align_corners=False)
+            # -> (B, 32, H/4, W/4)
         u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, H/4, W/4)
 
-        u3 = self.up3(u2)                # -> (B, 16, H/2, W/2)
+        u3 = self.up3(u2)
+        if u3.shape[-2:] != d1.shape[-2:]:
+            d1 = F.interpolate(d1, size=u1.shape[-2:], mode='bilinear', align_corners=False)
+            # -> (B, 16, H/2, W/2)
         u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, H/2, W/2)
 
         u4 = self.up4(u3)                # -> (B, 8, H, W)
