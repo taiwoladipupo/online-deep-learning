@@ -22,9 +22,12 @@ class CombinedLoss(nn.Module):
         class_weights = torch.tensor([1.0, 10.0, 10.0], device=device)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
         self.l1_loss = nn.L1Loss()
-        # self.dice_loss = DiceLoss()
+        self.dice_loss = DiceLoss()
         self.depth_weight = 0.1 # weight for depth loss
-        # self.dice_weight = 2.0 # weight for dice loss
+        self.dice_weight = 3.0 # weight for dice loss
+
+        self.warmup_epochs= 5
+        self.current_epoch = 0
 
         if device:
             self.to(device)
@@ -44,11 +47,12 @@ class CombinedLoss(nn.Module):
         """
         segmentation_loss = self.ce_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
+        dice_loss = self.dice_loss(logits, target)
 
         #Debugging loss values
-        print(f"Losses: CE={segmentation_loss.item():.4f}, L1={depth_loss.item():.4f}")
+        print(f"Losses: CE={segmentation_loss.item():.4f}, L1={depth_loss.item():.4f}, Depth={dice_loss.item():.4f}")
         # dice_loss = self.dice_loss(logits, target)
-        return segmentation_loss + self.depth_weight * depth_loss
+        return segmentation_loss + self.depth_weight * dice_loss + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
@@ -124,6 +128,7 @@ def train(
             metrics[key].clear()
 
         model.train()
+        loss_func.current_epoch = epoch
 
         for batch in train_data:
             # print(batch.keys())
