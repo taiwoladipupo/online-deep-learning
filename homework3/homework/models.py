@@ -101,11 +101,8 @@ class RandomChannelDropout(nn.Module):
         if not self.training or self.channels <= 0:
             return x
 
-        mask = torch.ones(x.shape[1])
-        mask[:self.channels] = 0
-        mask = mask[torch.randperm(x.shape[1])]
-        mask = mask.to(x.device)
-        mask = mask[None, :, None, None]
+        keep_prob = torch.rand(x.shape[1], device=x.device) > self.channels
+        mask = keep_prob.float()[None:, :, None, None]
 
         return x * mask
 
