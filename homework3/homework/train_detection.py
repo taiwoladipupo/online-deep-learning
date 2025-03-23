@@ -37,18 +37,15 @@ class CombinedLoss(nn.Module):
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # logits[:, 0, :, :] -= 0.5
 
-        if self.current_epoch < 5:
-            suppression = 1.5
-        else:
-            suppression = max(0.7, 2.0 - 0.1 * self.current_epoch)
+        suppression = 1.5  if self.current_epoch < 5 else 0.75
         logits[:, 0, :, :] -= suppression
 
         with torch.no_grad():
-            probs = torch.softmax(logits, dim=1)
-            bg_ratio = (probs[:, 0, :, :] > 0.9).float().mean().item()
-        if bg_ratio > 0.5:
-            logits[:, 0, :, :] -= 0.5 * bg_ratio
-
+            pred = torch.softmax(logits, dim=1)
+            bg_ratio = (pred == 0).float().mean()
+        penalty = torch.tensor(0.0, device=logits.device)
+        if bg_ratio > 0.99:
+            penalty = (bg_ratio - 0.99) * 10.0
         segmentation_loss = self.seg_loss(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         tversky_loss = self.tversky_loss(logits, target)
@@ -57,7 +54,7 @@ class CombinedLoss(nn.Module):
         # probs = torch.softmax(logits, dim=1)
         # background_conf = probs[:, 0, :, :].mean()
 
-        return segmentation_loss + 0.5 * dice_loss + self.depth_weight * depth_loss
+        return segmentation_loss + 0.5 * dice_loss + self.depth_weight * depth_loss + penalty
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
