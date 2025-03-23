@@ -26,7 +26,7 @@ class CombinedLoss(nn.Module):
 
         self.seg_loss = nn.CrossEntropyLoss(weight=class_weights)
         self.l1_loss = nn.L1Loss()
-        self.tversky_loss = TverskyLoss(alpha=0.7, beta=0.3, smooth=1e-6)
+        self.tversky_loss = TverskyLoss(alpha=0.5, beta=0.7, smooth=1e-6)
         # self.dice_loss = DiceLoss()
 
         self.depth_weight = 0.05
@@ -36,7 +36,7 @@ class CombinedLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # logits[:, 0, :, :] -= 0.5
-        suppression = max(0.0, 1.5 - 0.15 * self.current_epoch)
+        suppression = max(0.0, 1.5 - 0.05 * self.current_epoch)
         logits[:, 0, :, :] -= suppression
 
         with torch.no_grad():
