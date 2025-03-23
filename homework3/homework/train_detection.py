@@ -125,7 +125,7 @@ def train(
 
     train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size,
                            num_workers=2)
-    val_data = load_data("drive_data/val", transform_pipeline="aug", shuffle=False)
+    val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
     # create loss function and optimizer
     loss_func = CombinedLoss(device)
@@ -189,6 +189,9 @@ def train(
         # disable gradient computation and switch to evaluation mode
         with torch.inference_mode():
             model.eval()
+            pred_classes = logits.argmax(dim=1)
+            class_counts = torch.bincount(pred_classes.view(-1), minlength=3)
+            print(f"Predicted Class counts: {class_counts}")
 
             for batch in val_data:
                 img = batch['image'].to(device)
