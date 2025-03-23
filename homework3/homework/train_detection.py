@@ -15,8 +15,13 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
+        counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
+        frequency = counts / counts.sum()
+        class_weights = torch.log(1 / (frequency + 1e-6))
+        class_weights = class_weights / class_weights.sum() * len(class_weights)
+        self.class_weights = class_weights
 
-        self.seg_loss = nn.CrossEntropyLoss(weight=torch.tensor([0.1, 4.0, 6.0], device=device))
+        self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
         self.depth_loss = nn.L1Loss()
         self.seg_depth_weight = 0.05
 
@@ -26,18 +31,18 @@ class CombinedLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # Dynamic class 0 suppression
-        # suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
-        # logits[:, 0, :, :] -= suppression
-        #
-        # # Foreground boost
-        # boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
-        # logits[:, 1, :, :] += boost * 1.2
-        # logits[:, 2, :, :] += boost * 1.0
-        #
-        # # Dynamic cross-entropy weights
-        # weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
-        # weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
-        # seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
+        suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
+        logits[:, 0, :, :] -= suppression
+
+        # Foreground boost
+        boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
+        logits[:, 1, :, :] += boost * 1.2
+        logits[:, 2, :, :] += boost * 1.0
+
+        # Dynamic cross-entropy weights
+        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
+        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
+        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
 
         segmentation_loss = self.seg_loss(logits, target)
         tversky = self.tversky_loss(logits, target)
