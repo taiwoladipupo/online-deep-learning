@@ -18,7 +18,7 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        counts = torch.tensor([0.1, 1.0, 1.0], dtype=torch.float32)
+        counts = torch.tensor([0.01, 2.0, 3.0], dtype=torch.float32)
         frequency = counts / counts.sum()
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)
@@ -26,7 +26,8 @@ class CombinedLoss(nn.Module):
 
         self.seg_loss = nn.CrossEntropyLoss(weight=class_weights)
         self.l1_loss = nn.L1Loss()
-        self.dice_loss = DiceLoss()
+        self.tversky_loss = TverskyLoss(alpha=0.7, beta=0.3, smooth=1e-6)
+        # self.dice_loss = DiceLoss()
 
         self.depth_weight = 0.05
 
@@ -34,16 +35,18 @@ class CombinedLoss(nn.Module):
             self.to(device)
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
-        logits[:, 0, :, :] -= 0.5
+        # logits[:, 0, :, :] -= 0.5
+        suppression = max(0.5, 1.5, - 0.15 * self.current_epoch)
+        logits[:, 0, :, :] -= suppression
         segmentation_loss = self.seg_loss(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
-        dice_loss = self.dice_loss(logits, target)
-
+        tversky_loss = self.tversky_loss(logits, target)
+        #dice_loss = self.dice_loss(logits, target)
         # Penalty for overconfident background predictions
         # probs = torch.softmax(logits, dim=1)
         # background_conf = probs[:, 0, :, :].mean()
 
-        return segmentation_loss + 0.5 * dice_loss + self.depth_weight * depth_loss
+        return segmentation_loss + 0.5 * tversky_loss + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
@@ -84,6 +87,24 @@ class FocalLoss(nn.Module):
         else:
             return focal_loss
 
+class TverskyLoss(nn.Module):
+    def __init__(self, alpha=0.7, beta=0.3, smooth=1e-6):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.smooth = smooth
+
+    def forward(self, logits, target):
+        probs = torch.softmax(logits, dim=1)
+        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
+        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
+
+        TP = (probs * target_one_hot).sum(dim=(0, 2, 3))
+        FP = (probs * (1 - target_one_hot)).sum(dim=(0, 2, 3))
+        FN = ((1 - probs) * target_one_hot).sum(dim=(0, 2, 3))
+
+        tversky = (TP + self.smooth) / (TP + self.alpha * FP + self.beta * FN + self.smooth)
+        return 1 - tversky.mean()
 
 
 def train(
