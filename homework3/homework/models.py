@@ -204,7 +204,7 @@ class Detector(torch.nn.Module):
         # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
-        z = self.channel_droupout(z)
+        z = self.channel_dropout(z)
         # Down sampling to reduce spatial dimensions
         # Down
         d1 = self.down1(z)  # (B, 16, H/2, W/2)
