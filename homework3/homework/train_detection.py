@@ -27,7 +27,7 @@ class CombinedLoss(nn.Module):
         self.seg_loss = nn.CrossEntropyLoss(weight=class_weights)
         self.l1_loss = nn.L1Loss()
         self.tversky_loss = TverskyLoss(alpha=0.5, beta=0.7, smooth=1e-6)
-        # self.dice_loss = DiceLoss()
+        self.dice_loss = DiceLoss()
 
         self.depth_weight = 0.05
 
@@ -36,7 +36,7 @@ class CombinedLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # logits[:, 0, :, :] -= 0.5
-        suppression = max(0.25, 2.5 - 0.1 * self.current_epoch)
+        suppression = max(0.5, 1.5 - 0.1 * self.current_epoch)
         logits[:, 0, :, :] -= suppression
 
         with torch.no_grad():
@@ -48,12 +48,12 @@ class CombinedLoss(nn.Module):
         segmentation_loss = self.seg_loss(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         tversky_loss = self.tversky_loss(logits, target)
-        #dice_loss = self.dice_loss(logits, target)
+        dice_loss = self.dice_loss(logits, target)
         # Penalty for overconfident background predictions
         # probs = torch.softmax(logits, dim=1)
         # background_conf = probs[:, 0, :, :].mean()
 
-        return segmentation_loss + 0.5 * tversky_loss + self.depth_weight * depth_loss
+        return segmentation_loss + 0.5 * dice_loss + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
