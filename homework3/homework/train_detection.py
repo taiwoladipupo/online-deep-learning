@@ -166,15 +166,15 @@ def train(
             # Print shapes min/ma values
             if global_step % 10 == 0:
                 print(f"Step {global_step}:")
-                print(f"  img shape: {img.shape}, min: {img.min().item()}, max: {img.max().item()}")
-                print(f"  logits shape: {logits.shape}, min: {logits.min().item()}, max: {logits.max().item()}")
-                print(
-                    f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
-                pred = logits.argmax(dim=1)
-                unique_classes = torch.unique(pred)
-                print(f"  Predicted classes in batch: {unique_classes.tolist()}")
-                print(f"  Class counts: {torch.bincount(pred.view(-1)).cpu().numpy()}")
-            print(f"  Pixel counts: {pixel_counter}")
+                # print(f"  img shape: {img.shape}, min: {img.min().item()}, max: {img.max().item()}")
+                # print(f"  logits shape: {logits.shape}, min: {logits.min().item()}, max: {logits.max().item()}")
+                # print(
+                #     f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
+                # pred = logits.argmax(dim=1)
+                # unique_classes = torch.unique(pred)
+                # print(f"  Predicted classes in batch: {unique_classes.tolist()}")
+                # print(f"  Class counts: {torch.bincount(pred.view(-1)).cpu().numpy()}")
+            #print(f"  Pixel counts: {pixel_counter}")
             # Initialize confusion matrix
         confusion_matrix = ConfusionMatrix(num_classes=3)
 
