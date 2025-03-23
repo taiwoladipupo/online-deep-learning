@@ -124,6 +124,7 @@ class Detector(torch.nn.Module):
         # self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
         # self.depth = nn.Conv2d(8, 1, kernel_size=1)
 
+        # Downsampling layers
         self.down1 = nn.Sequential(
             nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
@@ -141,13 +142,13 @@ class Detector(torch.nn.Module):
             nn.ReLU(),
         )
 
-        # Up sampling
+        # Upsampling layers with corrected input channels for skip connections
         self.up1 = nn.Sequential(
             nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.ReLU(),
         )
         self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(128 + 64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(64 + 64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.ReLU(),
         )
         self.up3 = nn.Sequential(
@@ -159,14 +160,12 @@ class Detector(torch.nn.Module):
             nn.ReLU(),
         )
 
-
-        # Final layers
-        self.logits = nn.Conv2d(16, num_classes, kernel_size=1, stride=1)
+        # Final prediction heads
+        self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
         self.depth = nn.Sequential(
-            nn.Conv2d(in_channels, 1, kernel_size=1),
-            nn.Sigmoid(),
+            nn.Conv2d(8, 1, kernel_size=1),
+            nn.Sigmoid(),  # Depth normalized to [0, 1]
         )
-
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -185,21 +184,26 @@ class Detector(torch.nn.Module):
         # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
         # Down sampling to reduce spatial dimensions
-        z = torch.relu(self.down1(z))
-        z = torch.relu(self.down2(z))
-        z = torch.relu(self.down3(z))
-        z = torch.relu(self.down4(z))
+        # Down
+        d1 = self.down1(z)  # (B, 16, H/2, W/2)
+        d2 = self.down2(d1) # (B, 32, H/4, W/4)
+        d3 = self.down3(d2) # (B, 64, H/8, W/8)
+        d4 = self.down4(d3) # (B, 128, H/16, W/16)
 
-        # Up Sampling return to original size
-        z = torch.relu(self.up1(z))
-        z = torch.relu(self.up2(z))
-        z = torch.relu(self.up3(z))
-        z = torch.relu(self.up4(z))
+        # Up with skip connections
+        u1 = self.up1(d4)                # -> (B, 64, H/8, W/8)
+        u1 = torch.cat([u1, d3], dim=1)  # concat skip -> (B, 128, H/8, W/8)
 
-        # TODO: replace with actual forward pass
-        logits = self.logits(z)
-        raw_depth = self.depth(z).squeeze(1)
+        u2 = self.up2(u1)                # -> (B, 32, H/4, W/4)
+        u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, H/4, W/4)
 
+        u3 = self.up3(u2)                # -> (B, 16, H/2, W/2)
+        u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, H/2, W/2)
+
+        u4 = self.up4(u3)                # -> (B, 8, H, W)
+
+        logits = self.logits(u4)
+        raw_depth = self.depth(u4).squeeze(1)  # output (B, H, W)
 
         return logits, raw_depth
 
