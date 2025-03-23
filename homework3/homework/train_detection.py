@@ -18,7 +18,7 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        counts = torch.tensor([95565916, 1386669, 1351415], dtype=torch.float32)
+        counts = torch.tensor([0.05, 0.45, 0.5], dtype=torch.float32)
         frequency = counts / counts.sum()
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)
@@ -78,6 +78,8 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
         else:
             return focal_loss
+
+
 
 def train(
         exp_dir: str = "logs",

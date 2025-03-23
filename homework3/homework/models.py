@@ -26,6 +26,7 @@ class Classifier(nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
+
         # Convolutional layers first block
         self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1)
         self.batch1 = nn.BatchNorm2d(64)
@@ -91,6 +92,23 @@ class Classifier(nn.Module):
         """
         return self(x).argmax(dim=1)
 
+class RandomChannelDropout(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.channels = channels
+
+    def forward(self, x):
+        if not self.training or self.channels <= 0:
+            return x
+
+        mask = torch.ones(x.shape[1])
+        mask[:self.channels] = 0
+        mask = mask[torch.randperm(x.shape[1])]
+        mask = mask.to(x.device)
+        mask = mask[None, :, None, None]
+
+        return x * mask
+
 
 class Detector(torch.nn.Module):
     def __init__(
@@ -109,6 +127,8 @@ class Detector(torch.nn.Module):
 
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
+
+        self.channel_dropout = RandomChannelDropout(p=0.2)
 
         # TODO: implement
         # self.down1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1)
@@ -183,6 +203,8 @@ class Detector(torch.nn.Module):
         x = x.float()
         # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
+
+        z = self.channel_droupout(z)
         # Down sampling to reduce spatial dimensions
         # Down
         d1 = self.down1(z)  # (B, 16, H/2, W/2)
