@@ -8,25 +8,23 @@ import torch.utils.tensorboard as tb
 from torch import nn
 from torch.cuda import device
 
-from .models import  load_model, save_model
-# couldn't find the prescribe datasets in read me, so I will use the following datasets
+from .models import load_model, save_model
 from .datasets.road_dataset import load_data
-# from .utils import load_data
 from .metrics import ConfusionMatrix
-
 
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        counts = torch.tensor([0.01, 2.0, 3.0], dtype=torch.float32)
+
+        counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
         frequency = counts / counts.sum()
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)
         self.base_class_weights = class_weights.to(device)
 
-        self.seg_loss = nn.CrossEntropyLoss(weight=self.base_class_weights)
-        self.l1_loss = nn.L1Loss()
         self.tversky_loss = TverskyLoss(alpha=0.7, beta=0.3, smooth=1e-6)
+        self.focal_loss = FocalLoss(alpha=torch.tensor([0.05, 1.5, 3.0], device=device), gamma=2)
+        self.l1_loss = nn.L1Loss()
         self.depth_weight = 0.05
 
         self.current_epoch = 0
@@ -35,27 +33,29 @@ class CombinedLoss(nn.Module):
         if device:
             self.to(device)
 
+    def set_epoch(self, epoch):
+        self.current_epoch = epoch
+
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
-        # Class 0 suppression (background)
-        suppression = max(0.0, 2.5 - 2.5 * (self.current_epoch / self.total_epochs))
+        # Dynamic class 0 suppression
+        suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression
 
-        # Foreground encouragement (classes 1 and 2)
-        boost = 1.5 * torch.sigmoid(torch.tensor(5.0 * (0.5 - self.current_epoch / self.total_epochs)))
-        logits[:, 1, :, :] += boost
-        logits[:, 2, :, :] += boost
+        # Foreground boost
+        boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
+        logits[:, 1, :, :] += boost * 1.2
+        logits[:, 2, :, :] += boost * 1.0
 
-        # Compute losses
-        segmentation_loss = self.seg_loss(logits * 2.0, target)
-        tversky_loss = self.tversky_loss(logits, target)
+        # Dynamic cross-entropy weights
+        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
+        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
+        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
+
+        segmentation_loss = 0.6 * seg_loss_fn(logits, target) + 0.4 * self.focal_loss(logits, target)
+        tversky = self.tversky_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
 
-        # Background confidence penalty
-        probs = torch.softmax(logits, dim=1)
-        background_conf = probs[:, 0, :, :].mean()
-        penalty = background_conf * 0.1
-
-        return segmentation_loss + 0.7 * tversky_loss + self.depth_weight * depth_loss + penalty
+        return segmentation_loss + 0.7 * tversky + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
@@ -63,9 +63,9 @@ class DiceLoss(nn.Module):
         self.smooth = smooth
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
-        probs = torch.softmax(logits, dim=1)           # (B, C, H, W)
-        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])  # (B, H, W, C)
-        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()                        # (B, C, H, W)
+        probs = torch.softmax(logits, dim=1)
+        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
+        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
 
         intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
         union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
@@ -84,9 +84,7 @@ class FocalLoss(nn.Module):
         ce_loss = nn.CrossEntropyLoss(weight=None, reduction='none')(logits, target)
         pt = torch.exp(-ce_loss)
 
-        #Applying class weights per-pixel
         alpha_factor = self.alpha[target]
-
         focal_loss = alpha_factor * (1 - pt) ** self.gamma * ce_loss
 
         if self.reduction == 'mean':
@@ -141,40 +139,27 @@ def train(
         print("CUDA not available, using CPU")
         device = torch.device("cpu")
 
-    # set random seed so each run is deterministic
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    # directory with timestamp to save tensorboard logs and model checkpoints
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
 
-    # note: the grader uses default kwargs, you'll have to bake them in for the final submission
     model = load_model(model_name, **kwargs)
     model = model.to(device)
     model.train()
 
-
-
-    # train_data = load_data("classification_data/train", shuffle=True, batch_size=batch_size, num_workers=2)
-    # val_data = load_data("classification_data/val", shuffle=False)
-
-
-    train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size,
-                           num_workers=2)
+    train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size, num_workers=2)
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
-    # create loss function and optimizer
     loss_func = CombinedLoss(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    scheduler = warmup_schedulerr(optimizer)#torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = warmup_schedulerr(optimizer)
 
     global_step = 0
     metrics = {"train_acc": [], "val_acc": []}
 
-    # training loop
     for epoch in range(num_epoch):
-        # clear metrics at beginning of epoch
         for key in metrics:
             metrics[key].clear()
 
@@ -183,67 +168,41 @@ def train(
 
         pixel_counter = Counter()
         for batch in train_data:
-            # print(batch.keys())
             img = batch['image'].to(device)
             label = batch['track'].to(device)
             depth_true = batch['depth'].to(device)
-            #print("labels:",torch.unique(label))
+
             unique, counts = torch.unique(label, return_counts=True)
-            for u,c in zip(unique.tolist(), counts.tolist()):
+            for u, c in zip(unique.tolist(), counts.tolist()):
                 pixel_counter[u] += c
 
-            # Training step
-            logits, depth_pred = model(img) #  the model returns logits and depth
+            logits, depth_pred = model(img)
             loss_val = loss_func(logits, label, depth_pred, depth_true)
 
             optimizer.zero_grad()
             loss_val.backward()
             optimizer.step()
 
-            # calculate training accuracy
-            # pred = torch.argmax(pred, dim=1)
-            # train_acc = (pred == label).float().mean().item()
             metrics["train_acc"].append(loss_val.item())
-
             global_step += 1
             logger.add_scalar("train/total_loss", loss_val.item(), global_step)
 
-            # Print shapes min/ma values
-            if global_step % 10 == 0:
-                print(f"Step {global_step}:")
-                # print(f"  img shape: {img.shape}, min: {img.min().item()}, max: {img.max().item()}")
-                # print(f"  logits shape: {logits.shape}, min: {logits.min().item()}, max: {logits.max().item()}")
-                # print(
-                #     f"  depth_pred shape: {depth_pred.shape}, min: {depth_pred.min().item()}, max: {depth_pred.max().item()}")
-                # pred = logits.argmax(dim=1)
-                # unique_classes = torch.unique(pred)
-                # print(f"  Predicted classes in batch: {unique_classes.tolist()}")
-                # print(f"  Class counts: {torch.bincount(pred.view(-1)).cpu().numpy()}")
-            #print(f"  Pixel counts: {pixel_counter}")
-            # Initialize confusion matrix
         confusion_matrix = ConfusionMatrix(num_classes=3)
 
-        # disable gradient computation and switch to evaluation mode
         with torch.inference_mode():
             model.eval()
-            pred_classes = logits.argmax(dim=1)
-            class_counts = torch.bincount(pred_classes.view(-1), minlength=3)
-            # print(f"Predicted Class counts: {class_counts}")
-
             for batch in val_data:
                 img = batch['image'].to(device)
                 label = batch['track'].to(device)
                 depth_true = batch['depth'].to(device)
 
-                # compute validation accuracy
                 logits, depth_pred = model(img)
                 val_loss = loss_func(logits, label, depth_pred, depth_true)
                 metrics["val_acc"].append(val_loss.item())
 
-                # confusion matrix
                 pred = logits.argmax(dim=1)
                 confusion_matrix.add(pred, label)
-        # calculate mIou
+
         miou = confusion_matrix.compute()
 
         if hasattr(confusion_matrix, "matrix"):
@@ -256,32 +215,21 @@ def train(
             iou_per_class = np.divide(tp, denom, out=np.zeros_like(tp, dtype=np.float32), where=denom != 0)
 
             for i, class_iou in enumerate(iou_per_class):
-                 print(f"Class {i} IoU: {class_iou:.3f}")
+                print(f"Class {i} IoU: {class_iou:.3f}")
         else:
             print("Confusion matrix data not available.")
 
-
-        # #understaanding which class is affecting iou
-        # if isinstance(miou['iou'], list):
-        #
-        #     # print(f"miou: {miou['iou']: .3f}")
-        #     for i, class_iou in enumerate(miou['iou']):
-        #         print(f"Class {i} IoU: {class_iou:.3f}")
-        # else:
-        #     print(f"miou: {miou['iou']: .3f}")
         confusion_matrix.reset()
         print(f"mIou: {miou}")
         logger.add_scalar("val/miou", miou["iou"], epoch)
         logger.add_scalar("val/seg_accuracy", miou["accuracy"], epoch)
 
-        # log average train and val accuracy to tensorboard
         epoch_train_acc = torch.as_tensor(metrics["train_acc"]).mean()
         epoch_val_acc = torch.as_tensor(metrics["val_acc"]).mean()
 
         logger.add_scalar('train/accuracy', epoch_train_acc, epoch)
         logger.add_scalar('val/accuracy', epoch_val_acc, epoch)
 
-        # print on first, last, every 10th epoch
         if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % 10 == 0:
             print(
                 f"Epoch {epoch + 1:2d} / {num_epoch:2d}: "
@@ -290,13 +238,9 @@ def train(
             )
         scheduler.step()
 
-    # save and overwrite the model in the root directory for grading
     save_model(model)
-
-    # save a copy of model weights in the log directory
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -308,8 +252,4 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=2024)
     parser.add_argument("--transform_pipeline", type=str, default="default")
 
-    # optional: additional model hyperparameters
-    # parser.add_argument("--num_layers", type=int, default=3)
-
-    # pass all arguments to train
     train(**vars(parser.parse_args()))
