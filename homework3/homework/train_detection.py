@@ -87,7 +87,7 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, logits, target):
-        ce_loss = nn.CrossEntropyLoss(weight=self.alpha, reduction='none')(logits, target)
+        ce_loss = nn.CrossEntropyLoss(weight=None, reduction='none')(logits, target)
         pt = torch.exp(-ce_loss)
 
         #Applying class weights per-pixel
