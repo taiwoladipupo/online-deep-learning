@@ -133,6 +133,7 @@ def train(
             img = batch['image'].to(device)
             label = batch['track'].to(device)
             depth_true = batch['depth'].to(device)
+            print("labels:",torch.unique(label))
 
             # Training step
             logits, depth_pred = model(img) #  the model returns logits and depth
