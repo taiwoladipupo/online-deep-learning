@@ -18,7 +18,7 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        counts = torch.tensor([0.001, 5.0, 5.0], dtype=torch.float32)
+        counts = torch.tensor([0.1, 1.0, 1.0], dtype=torch.float32)
         frequency = counts / counts.sum()
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)
@@ -34,7 +34,7 @@ class CombinedLoss(nn.Module):
             self.to(device)
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
-        logits[:, 0, :, :] -= 1.0
+        logits[:, 0, :, :] -= 0.5
         segmentation_loss = self.seg_loss(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         dice_loss = self.dice_loss(logits, target)
