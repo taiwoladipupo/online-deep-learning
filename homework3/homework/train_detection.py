@@ -18,17 +18,10 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        # After noticing that mIOU is low, I decided to use weighted cross entropy loss
         counts = torch.tensor([95565916, 1386669, 1351415], dtype=torch.float32)
         class_weights = 1.0 / counts
         class_weights = class_weights / class_weights.sum()
         class_weights = class_weights.to(device)
-
-        # self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
-        # self.l1_loss = nn.L1Loss()
-        # self.dice_loss = DiceLoss()
-        # self.depth_weight = 0.05 # weight for depth loss
-        # self.dice_weight = 1.0 # weight for dice loss
 
         self.seg_loss = FocalLoss(alpha=class_weights)
         self.l1_loss = nn.L1Loss()
@@ -36,31 +29,14 @@ class CombinedLoss(nn.Module):
 
         self.depth_weight = 0.05
 
-
-
         if device:
             self.to(device)
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
-        """
-        Combined loss function for segmentation and depth prediction
-        Args:
-            logits: tensor (b, c, h,w) logits, where c is the number of classes
-            target: tensor (b,h,w) labels
-            depth_pred: tensor (b,h,w) predicted depth
-            depth_true: tensor (b,h,w) true depth
-
-        Returns:
-            tensor, segmantation loss + regression loss
-
-        """
         segmentation_loss = self.seg_loss(logits * 2.0, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         dice_loss = self.dice_loss(logits, target)
 
-        #Debugging loss values
-        #print(f"Losses: CE={segmentation_loss.item():.4f}, L1={depth_loss.item():.4f}, Depth={dice_loss.item():.4f}")
-        # dice_loss = self.dice_loss(logits, target)
         return segmentation_loss + self.depth_weight * dice_loss + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
