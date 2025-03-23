@@ -16,83 +16,34 @@ class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
 
-        counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
-        frequency = counts / counts.sum()
-        class_weights = torch.log(1 / (frequency + 1e-6))
-        class_weights = class_weights / class_weights.sum() * len(class_weights)
-        self.base_class_weights = class_weights.to(device)
+        self.seg_loss = nn.CrossEntropyLoss(weight=torch.tensor([0.1, 4.0, 6.0], device=device))
+        self.depth_loss = nn.L1Loss()
+        self.seg_depth_weight = 0.05
 
-        self.tversky_loss = TverskyLoss(alpha=0.7, beta=0.3, smooth=1e-6)
-        self.focal_loss = FocalLoss(alpha=torch.tensor([0.05, 1.5, 3.0], device=device), gamma=2)
-        self.l1_loss = nn.L1Loss()
-        self.depth_weight = 0.05
-
-        self.current_epoch = 0
-        self.total_epochs = 25
-
-        if device:
-            self.to(device)
 
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # Dynamic class 0 suppression
-        suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression
+        # suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
+        # logits[:, 0, :, :] -= suppression
+        #
+        # # Foreground boost
+        # boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
+        # logits[:, 1, :, :] += boost * 1.2
+        # logits[:, 2, :, :] += boost * 1.0
+        #
+        # # Dynamic cross-entropy weights
+        # weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
+        # weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
+        # seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
 
-        # Foreground boost
-        boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
-        logits[:, 1, :, :] += boost * 1.2
-        logits[:, 2, :, :] += boost * 1.0
-
-        # Dynamic cross-entropy weights
-        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
-        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
-        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
-
-        segmentation_loss = 0.6 * seg_loss_fn(logits, target) + 0.4 * self.focal_loss(logits, target)
+        segmentation_loss = self.seg_loss(logits, target)
         tversky = self.tversky_loss(logits, target)
-        depth_loss = self.l1_loss(depth_pred, depth_true)
+        depth_loss = self.depth_loss(depth_pred, depth_true)
 
-        return segmentation_loss + 0.7 * tversky + self.depth_weight * depth_loss
-
-class DiceLoss(nn.Module):
-    def __init__(self, smooth=1e-6):
-        super().__init__()
-        self.smooth = smooth
-
-    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
-        probs = torch.softmax(logits, dim=1)
-        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
-        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
-
-        intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
-        union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
-
-        dice = (2. * intersection + self.smooth) / (union + self.smooth)
-        return 1 - dice[1:].mean()
-
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=0.25, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-
-    def forward(self, logits, target):
-        ce_loss = nn.CrossEntropyLoss(weight=None, reduction='none')(logits, target)
-        pt = torch.exp(-ce_loss)
-
-        alpha_factor = self.alpha[target]
-        focal_loss = alpha_factor * (1 - pt) ** self.gamma * ce_loss
-
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        else:
-            return focal_loss
+        return segmentation_loss + self.depth_weight * tversky * depth_loss
 
 class TverskyLoss(nn.Module):
     def __init__(self, alpha=0.7, beta=0.3, smooth=1e-6):
@@ -188,6 +139,7 @@ def train(
             logger.add_scalar("train/total_loss", loss_val.item(), global_step)
 
         confusion_matrix = ConfusionMatrix(num_classes=3)
+        depth_errors = []
 
         with torch.inference_mode():
             model.eval()
@@ -203,7 +155,14 @@ def train(
                 pred = logits.argmax(dim=1)
                 confusion_matrix.add(pred, label)
 
+                depth_errors.append(torch.abs(depth_pred - depth_true).mean().item())
+
         miou = confusion_matrix.compute()
+        mean_depth_mae = sum(depth_errors) / len(depth_errors)
+
+        print("miou:", miou["iou"])
+        print("mean_depth_mae:", mean_depth_mae)
+
 
         if hasattr(confusion_matrix, "matrix"):
             matrix = confusion_matrix.matrix
