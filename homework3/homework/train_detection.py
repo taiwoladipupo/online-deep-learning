@@ -119,6 +119,13 @@ class TverskyLoss(nn.Module):
         tversky = (TP + self.smooth) / (TP + self.alpha * FP + self.beta * FN + self.smooth)
         return 1 - tversky.mean()
 
+def warmup_schedulerr(optimizer, warmup_epochs=3):
+    def lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            return float(epoch + 1) / warmup_epochs
+        return 1.0
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 def train(
         exp_dir: str = "logs",
@@ -164,7 +171,7 @@ def train(
     # create loss function and optimizer
     loss_func = CombinedLoss(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = warmup_schedulerr(optimizer)#torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
     global_step = 0
     metrics = {"train_acc": [], "val_acc": []}
