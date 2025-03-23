@@ -102,7 +102,7 @@ class RandomChannelDropout(nn.Module):
             return x
 
         keep_prob = torch.rand(x.shape[1], device=x.device) > self.channels
-        mask = keep_prob.float()[None:, :, None, None]
+        mask = keep_prob.float()[None, :, None, None]
 
         return x * mask
 
