@@ -32,17 +32,24 @@ class CombinedLoss(nn.Module):
 
         self.depth_weight = 0.05
 
+        self.current_epoch = 0
+        self.total_epochs = 50
+
         if device:
             self.to(device)
 
+    def set_epoch(self, epoch):
+        self.current_epoch = epoch
+
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # logits[:, 0, :, :] -= 0.5
-        if self.current_epoch < 5:
-            suppression = 1.5 -0.2 * self.current_epoch
-        elif self.current_epoch < 10:
-            suppression = 1.5 - 0.1 * self.current_epoch
-        else:
-            suppression = 0.0
+        # if self.current_epoch < 5:
+        #     suppression = 1.5 -0.2 * self.current_epoch
+        # elif self.current_epoch < 10:
+        #     suppression = 1.5 - 0.1 * self.current_epoch
+        # else:
+        #     suppression = 0.0
+        suppression = max(0.2, 1.5 - 1.3 * (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression
 
         with torch.no_grad():
@@ -59,7 +66,7 @@ class CombinedLoss(nn.Module):
         # probs = torch.softmax(logits, dim=1)
         # background_conf = probs[:, 0, :, :].mean()
 
-        return segmentation_loss  + self.depth_weight * depth_loss
+        return segmentation_loss + 0.7 * dice_loss   + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
@@ -183,7 +190,7 @@ def train(
             metrics[key].clear()
 
         model.train()
-        loss_func.current_epoch = epoch
+        loss_func.set_epoch(epoch)
 
         pixel_counter = Counter()
         for batch in train_data:
