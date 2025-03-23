@@ -28,6 +28,7 @@ class CombinedLoss(nn.Module):
         self.l1_loss = nn.L1Loss()
         self.tversky_loss = TverskyLoss(alpha=0.5, beta=0.7, smooth=1e-6)
         self.dice_loss = DiceLoss()
+        self.focal_loss = FocalLoss(alpha=torch.tensor([0.05, 1.5, 3.0], device=device), gamma=2)
 
         self.depth_weight = 0.05
 
@@ -46,7 +47,7 @@ class CombinedLoss(nn.Module):
         penalty = torch.tensor(0.0, device=logits.device)
         if bg_ratio > 0.99:
             penalty = (bg_ratio - 0.99) * 10.0
-        segmentation_loss = self.seg_loss(logits * 2.0, target)
+        segmentation_loss = 0.7 * self.focal_loss(logits * 2.0, target) + 0.3 * self.dice_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         tversky_loss = self.tversky_loss(logits, target)
         dice_loss = self.dice_loss(logits, target)
@@ -54,7 +55,7 @@ class CombinedLoss(nn.Module):
         # probs = torch.softmax(logits, dim=1)
         # background_conf = probs[:, 0, :, :].mean()
 
-        return segmentation_loss + 0.5 * dice_loss + self.depth_weight * depth_loss + penalty
+        return segmentation_loss  + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
