@@ -46,7 +46,7 @@ class CombinedLoss(nn.Module):
         # if self.current_epoch < 5:
         #     logits[:, 0, :, :] -= 4.0
         # else:
-        suppression = max(0.0, 2.0 - 1.0 * (self.current_epoch / self.total_epochs))
+        suppression = max(0.0, 1.5 - 1.2 * (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression
 
         boost = max(0.0, 1.0 - 1.0 * (self.current_epoch / (self.total_epochs / 2) ))
