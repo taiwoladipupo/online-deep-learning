@@ -18,18 +18,15 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
+        counts = torch.tensor([0.01, 2.0, 3.0], dtype=torch.float32)
         frequency = counts / counts.sum()
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)
-        class_weights = class_weights.to(device)
+        self.base_class_weights = class_weights.to(device)
 
-        self.seg_loss = nn.CrossEntropyLoss(weight=class_weights)
+        self.seg_loss = nn.CrossEntropyLoss(weight=self.base_class_weights)
         self.l1_loss = nn.L1Loss()
-        self.tversky_loss = TverskyLoss(alpha=0.5, beta=0.7, smooth=1e-6)
-        self.dice_loss = DiceLoss()
-        self.focal_loss = FocalLoss(alpha=torch.tensor([0.05, 1.5, 3.0], device=device), gamma=2)
-
+        self.tversky_loss = TverskyLoss(alpha=0.7, beta=0.3, smooth=1e-6)
         self.depth_weight = 0.05
 
         self.current_epoch = 0
@@ -38,46 +35,27 @@ class CombinedLoss(nn.Module):
         if device:
             self.to(device)
 
-    def set_epoch(self, epoch):
-        self.current_epoch = epoch
-
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
-        # logits[:, 0, :, :] -= 0.5
-        # if self.current_epoch < 5:
-        #     logits[:, 0, :, :] -= 4.0
-        # else:
-        suppression = max(0.0, 1.5 - 1.0 * (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression * 0.4
+        # Class 0 suppression (background)
+        suppression = max(0.0, 2.5 - 2.5 * (self.current_epoch / self.total_epochs))
+        logits[:, 0, :, :] -= suppression
 
-        boost = max(0.0, 1.0 -  (self.current_epoch / (self.total_epochs / 2) ))
-        logits[:, 1, :, :] += boost * 1.2
-        logits[:, 2, :, :] += boost * 1.0
+        # Foreground encouragement (classes 1 and 2)
+        boost = 1.5 * torch.sigmoid(torch.tensor(5.0 * (0.5 - self.current_epoch / self.total_epochs)))
+        logits[:, 1, :, :] += boost
+        logits[:, 2, :, :] += boost
 
+        # Compute losses
+        segmentation_loss = self.seg_loss(logits * 2.0, target)
+        tversky_loss = self.tversky_loss(logits, target)
+        depth_loss = self.l1_loss(depth_pred, depth_true)
+
+        # Background confidence penalty
         probs = torch.softmax(logits, dim=1)
         background_conf = probs[:, 0, :, :].mean()
         penalty = background_conf * 0.1
 
-        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
-        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
-        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
-
-
-        # with torch.no_grad():
-        #     pred = torch.softmax(logits, dim=1)
-        #     bg_ratio = (pred == 0).float().mean()
-        # penalty = torch.tensor(0.0, device=logits.device)
-        # if bg_ratio > 0.99:
-        #     penalty = (bg_ratio - 0.99) * 10.0
-        segmentation_loss = self.seg_loss(logits * 2.0, target)
-        depth_loss = self.l1_loss(depth_pred, depth_true)
-
-        tversky_loss = self.tversky_loss(logits, target)
-        dice_loss = self.dice_loss(logits, target)
-        # Penalty for overconfident background predictions
-        # probs = torch.softmax(logits, dim=1)
-        # background_conf = probs[:, 0, :, :].mean()
-
-        return segmentation_loss + 0.7 * dice_loss   + self.depth_weight * depth_loss
+        return segmentation_loss + 0.7 * tversky_loss + self.depth_weight * depth_loss + penalty
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
