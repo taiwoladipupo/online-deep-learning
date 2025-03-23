@@ -46,10 +46,10 @@ class CombinedLoss(nn.Module):
         # if self.current_epoch < 5:
         #     logits[:, 0, :, :] -= 4.0
         # else:
-        suppression = max(0.0, 2.5 - 2.5 * (self.current_epoch / self.total_epochs))
+        suppression = max(0.0, 2.0 - 1.0 * (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression
 
-        boost = 1.5 * torch.sigmoid(torch.tensor(5.0 * (0.5 - self.current_epoch / self.total_epochs)))
+        boost = max(0.5, 1.5 - 1.2 * (self.current_epoch / (self.total_epochs / 1.5) ))
         logits[:, 1, :, :] += boost
         logits[:, 2, :, :] += boost
 
