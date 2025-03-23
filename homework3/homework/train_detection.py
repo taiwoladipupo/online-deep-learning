@@ -136,7 +136,7 @@ def train(
             depth_true = batch['depth'].to(device)
             print("labels:",torch.unique(label))
             unique, counts = torch.unique(label, return_counts=True)
-            for u,c in zip(unique.toList(), counts.toList()):
+            for u,c in zip(unique.tolist(), counts.tolist()):
                 pixel_counter[u] += c
 
             # Training step
