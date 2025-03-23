@@ -19,8 +19,12 @@ class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
         # After noticing that mIOU is low, I decided to use weighted cross entropy loss
-        class_weights = torch.tensor([1.0, 10.0, 10.0], device=device)
-        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
+        counts = torch.tensor([95565916, 1386669, 1351415], dtype=torch.float32)
+        class_weights = 1.0 / counts
+        class_weights = class_weights / class_weights.sum()
+        class_weights = class_weights.to(device)
+
+        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
         self.l1_loss = nn.L1Loss()
         self.dice_loss = DiceLoss()
         self.depth_weight = 0.05 # weight for depth loss
