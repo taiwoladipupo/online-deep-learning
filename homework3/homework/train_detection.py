@@ -18,7 +18,7 @@ from .metrics import ConfusionMatrix
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
-        counts = torch.tensor([0.01, 2.0, 3.0], dtype=torch.float32)
+        counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
         frequency = counts / counts.sum()
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)
@@ -36,7 +36,7 @@ class CombinedLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # logits[:, 0, :, :] -= 0.5
-        suppression = max(0.5, 1.5 - 0.1 * self.current_epoch)
+        suppression = max(0.3, 2.0 - 0.1 * self.current_epoch)
         logits[:, 0, :, :] -= suppression
 
         with torch.no_grad():
