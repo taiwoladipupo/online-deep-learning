@@ -111,18 +111,57 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
         # TODO: implement
-        self.down1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1)
-        self.down2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
-        self.down3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        self.down4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        # self.down1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1)
+        # self.down2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
+        # self.down3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        # self.down4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        #
+        # self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1) # Up sampling
+        # self.up2 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1)
+        # self.up3 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
+        # self.up4 = nn.ConvTranspose2d(16, 8, kernel_size=3, stride=2, padding=1, output_padding=1)
+        #
+        # self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
+        # self.depth = nn.Conv2d(8, 1, kernel_size=1)
 
-        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1) # Up sampling
-        self.up2 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.up3 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.up4 = nn.ConvTranspose2d(16, 8, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.down1 = nn.Sequential(
+            nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+        )
+        self.down2 = nn.Sequential(
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+        )
+        self.down3 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+        )
+        self.down4 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+        )
 
-        self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
-        self.depth = nn.Conv2d(8, 1, kernel_size=1)
+        # Up sampling
+        self.up1 = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+        )
+        self.up2 = nn.Sequential(
+            nn.ConvTranspose2d(128, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+        )
+        self.up3 = nn.Sequential(
+            nn.ConvTranspose2d(64, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+        )
+        self.up4 = nn.Sequential(
+            nn.ConvTranspose2d(32, 8, kernel_size=3, stride=2, padding=1, output_padding=1),
+        )
+
+        # Final layers
+        self.logits = nn.Conv2d(16, num_classes, kernel_size=1, stride=1)
+        self.depth = nn.Sequential(
+            nn.Conv2d(in_channels, 1, kernel_size=1),
+            nn.Sigmoid(),
+        )
 
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
