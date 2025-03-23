@@ -49,15 +49,19 @@ class CombinedLoss(nn.Module):
         #     suppression = 1.5 - 0.1 * self.current_epoch
         # else:
         #     suppression = 0.0
-        suppression = max(0.2, 1.5 - 1.3 * (self.current_epoch / self.total_epochs))
+        suppression = max(0.0, 1.5 - 1.3 * (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression
 
-        with torch.no_grad():
-            pred = torch.softmax(logits, dim=1)
-            bg_ratio = (pred == 0).float().mean()
-        penalty = torch.tensor(0.0, device=logits.device)
-        if bg_ratio > 0.99:
-            penalty = (bg_ratio - 0.99) * 10.0
+        boost = max(0.0, 1.0 - 1.0 * (self.current_epoch / self.total_epochs //2))
+        logits[:, 1, :, :] += boost
+        logits[:, 2, :, :] += boost
+
+        # with torch.no_grad():
+        #     pred = torch.softmax(logits, dim=1)
+        #     bg_ratio = (pred == 0).float().mean()
+        # penalty = torch.tensor(0.0, device=logits.device)
+        # if bg_ratio > 0.99:
+        #     penalty = (bg_ratio - 0.99) * 10.0
         segmentation_loss = 0.7 * self.focal_loss(logits * 2.0, target) + 0.3 * self.dice_loss(logits, target)
         depth_loss = self.l1_loss(depth_pred, depth_true)
         tversky_loss = self.tversky_loss(logits, target)
@@ -239,7 +243,7 @@ def train(
             model.eval()
             pred_classes = logits.argmax(dim=1)
             class_counts = torch.bincount(pred_classes.view(-1), minlength=3)
-            print(f"Predicted Class counts: {class_counts}")
+            # print(f"Predicted Class counts: {class_counts}")
 
             for batch in val_data:
                 img = batch['image'].to(device)
@@ -257,19 +261,19 @@ def train(
         # calculate mIou
         miou = confusion_matrix.compute()
 
-        if hasattr(confusion_matrix, "matrix"):
-            matrix = confusion_matrix.matrix
-            tp = np.diag(matrix)
-            fp = matrix.sum(axis=0) - tp
-            fn = matrix.sum(axis=1) - tp
-            denom = np.add(tp, np.add(fp, fn))
-
-            iou_per_class = np.divide(tp, denom, out=np.zeros_like(tp, dtype=np.float32), where=denom != 0)
-
-            for i, class_iou in enumerate(iou_per_class):
-                print(f"Class {i} IoU: {class_iou:.3f}")
-        else:
-            print("Confusion matrix data not available.")
+        # if hasattr(confusion_matrix, "matrix"):
+        #     matrix = confusion_matrix.matrix
+        #     tp = np.diag(matrix)
+        #     fp = matrix.sum(axis=0) - tp
+        #     fn = matrix.sum(axis=1) - tp
+        #     denom = np.add(tp, np.add(fp, fn))
+        #
+        #     iou_per_class = np.divide(tp, denom, out=np.zeros_like(tp, dtype=np.float32), where=denom != 0)
+        #
+        #     for i, class_iou in enumerate(iou_per_class):
+        #          print(f"Class {i} IoU: {class_iou:.3f}")
+        # else:
+        #     print("Confusion matrix data not available.")
         #
         #
         # #understaanding which class is affecting iou
