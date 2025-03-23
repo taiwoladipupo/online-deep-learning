@@ -19,8 +19,9 @@ class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
         counts = torch.tensor([95565916, 1386669, 1351415], dtype=torch.float32)
-        class_weights = 1.0 / (counts + 1e-6)
-        class_weights = class_weights / class_weights.sum() * 3
+        frequency = counts / counts.sum()
+        class_weights = torch.log(1 / (frequency + 1e-6))
+        class_weights = class_weights / class_weights.sum() * len(class_weights)
         class_weights = class_weights.to(device)
 
         self.seg_loss = FocalLoss(alpha=class_weights)
@@ -37,7 +38,7 @@ class CombinedLoss(nn.Module):
         depth_loss = self.l1_loss(depth_pred, depth_true)
         dice_loss = self.dice_loss(logits, target)
 
-        return segmentation_loss + self.depth_weight * dice_loss + self.depth_weight * depth_loss
+        return segmentation_loss + dice_loss + self.depth_weight * depth_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
