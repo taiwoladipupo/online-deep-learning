@@ -49,9 +49,9 @@ class CombinedLoss(nn.Module):
         suppression = max(0.0, 2.0 - 1.0 * (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression
 
-        boost = max(0.5, 1.5 - 1.2 * (self.current_epoch / (self.total_epochs / 1.5) ))
-        logits[:, 1, :, :] += boost
-        logits[:, 2, :, :] += boost
+        boost = max(0.0, 1.0 - 1.0 * (self.current_epoch / (self.total_epochs / 2) ))
+        logits[:, 1, :, :] += boost * 1.5
+        logits[:, 2, :, :] += boost * 0.8
 
         probs = torch.softmax(logits, dim=1)
         background_conf = probs[:, 0, :, :].mean()
