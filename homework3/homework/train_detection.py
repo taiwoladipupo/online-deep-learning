@@ -19,8 +19,8 @@ class CombinedLoss(nn.Module):
     def __init__(self, device=None):
         super(CombinedLoss, self).__init__()
         counts = torch.tensor([95565916, 1386669, 1351415], dtype=torch.float32)
-        class_weights = 1.0 / counts
-        class_weights = class_weights / class_weights.sum()
+        class_weights = 1.0 / (counts + 1e-6)
+        class_weights = class_weights / class_weights.sum() * 3
         class_weights = class_weights.to(device)
 
         self.seg_loss = FocalLoss(alpha=class_weights)
@@ -142,7 +142,7 @@ def train(
             img = batch['image'].to(device)
             label = batch['track'].to(device)
             depth_true = batch['depth'].to(device)
-            print("labels:",torch.unique(label))
+            #print("labels:",torch.unique(label))
             unique, counts = torch.unique(label, return_counts=True)
             for u,c in zip(unique.tolist(), counts.tolist()):
                 pixel_counter[u] += c
