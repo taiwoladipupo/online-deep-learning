@@ -36,7 +36,11 @@ class CombinedLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
         # logits[:, 0, :, :] -= 0.5
-        suppression = max(0.3, 2.0 - 0.1 * self.current_epoch)
+
+        if self.current_epoch < 5:
+            suppression = 1.5
+        else:
+            suppression = max(0.7, 2.0 - 0.1 * self.current_epoch)
         logits[:, 0, :, :] -= suppression
 
         with torch.no_grad():
