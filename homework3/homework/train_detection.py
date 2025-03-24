@@ -185,11 +185,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             label = batch["track"].to(device)
             depth_true = batch["depth"].to(device)
 
-            # print("\n=== DEBUG TRAIN BATCH ===")
-            # print("label shape:", label.shape)
-            # print("label min:", label.min().item(), "label max:", label.max().item())
-            # print("label unique:", torch.unique(label))
-            # print("=========================")
+            print("\n=== DEBUG TRAIN BATCH ===")
+            print("label shape:", label.shape)
+            print("label min:", label.min().item(), "label max:", label.max().item())
+            print("label unique:", torch.unique(label))
+            print("=========================")
 
             logits, depth_pred = model(img)
             # print("logits shape:", logits.shape)
@@ -224,11 +224,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
                 label = batch["track"].to(device)
                 depth_true = batch["depth"].to(device)
 
-                # print("\n=== DEBUG VAL BATCH ===")
-                # print("label shape:", label.shape)
-                # print("label min:", label.min().item(), "label max:", label.max().item())
-                # print("label unique:", torch.unique(label))
-                # print("=========================")
+                print("\n=== DEBUG VAL BATCH ===")
+                print("label shape:", label.shape)
+                print("label min:", label.min().item(), "label max:", label.max().item())
+                print("label unique:", torch.unique(label))
+                print("=========================")
                 logits, depth_pred = model(img)
 
                 if logits.shape[2:] != label.shape[1:]:
