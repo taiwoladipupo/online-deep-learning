@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
+import torch.utils.tensorboard as tb
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
@@ -205,6 +205,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             logger.add_scalar("val/depth_mae", mean_depth_mae, epoch)
 
             print(f"Epoch {epoch+1:2d}/{num_epoch:2d} - Train loss: {np.mean(train_losses):.4f}, Val loss: {np.mean(val_losses):.4f}")
+    save_model(model)
 
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
