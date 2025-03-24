@@ -25,7 +25,7 @@ class CombinedLoss(nn.Module):
         class_weights = class_weights / class_weights.sum() * len(class_weights)
         self.class_weights = class_weights.to(device)
 
-        self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=2.0)
+        self.seg_loss = FocalLoss(alpha=[0.5, 2.0, 3.0], gamma=2.0)
         self.depth_loss = nn.L1Loss()
 
         self.dice_loss = DiceLoss()
@@ -48,16 +48,17 @@ class CombinedLoss(nn.Module):
 
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
-        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
+        if  depth_true.ndim ==4:
+           depth_true = depth_true.squeeze(1)
 
         # Suppression for background
-        suppression = max(0.0, 1.5 - (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression * 4.0
+        suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs))
+        logits[:, 0, :, :] -= suppression * 2.0
 
         # Encourage foreground
         boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] +=  boost * 4.0
-        logits[:, 2, :, :] += boost * 4.0
+        logits[:, 1, :, :] +=  boost * 2.0
+        logits[:, 2, :, :] += boost * 2.0
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
@@ -69,29 +70,34 @@ class CombinedLoss(nn.Module):
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.7 * seg_loss + 0.35 * dice + depth_weight * depth
+        total = 0.7 * seg_loss + 0.3 * dice + depth_weight * depth
 
         return total
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
+    def __init__(self, gamma=2.0, alpha=None):
+        super().__init__()
         self.gamma = gamma
-        self.reduction = reduction
-
-    def forward(self, inputs, targets):
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
-        pt = torch.exp(-ce_loss)  # pt is the probability of the true class
-        focal_loss = (1 - pt) ** self.gamma * ce_loss
-
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
+        if alpha is not None:
+            self.alpha = torch.tensor(alpha, dtype=torch.float32)
         else:
-            return focal_loss
+            self.alpha = None
+
+    def forward(self, input, target):
+        log_probs = F.log_softmax(input, dim=1)
+        probs = torch.exp(log_probs)
+        target_one_hot = F.one_hot(target, num_classes=input.size(1)).permute(0, 3, 1, 2).float()
+
+        if self.alpha is not None:
+            alpha = self.alpha.to(input.device).view(1, -1, 1, 1)
+        else:
+            alpha = 1.0
+
+        focal_weight = alpha * (1 - probs) ** self.gamma
+        loss = -focal_weight * log_probs * target_one_hot
+        return loss.sum(dim=1).mean()
+
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
