@@ -179,6 +179,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             if label.ndim == 4 and label.shape[1] == 1:
                 print("Squeezing label from shape", label.shape)
                 label = label.squeeze(1)
+            if logits.shape[2:] != label.shape[1:]:
+                logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
 
             loss = loss_func(logits, label, depth_pred, depth_true)
 
