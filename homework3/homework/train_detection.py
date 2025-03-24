@@ -6,8 +6,8 @@ from torch.utils.tensorboard import SummaryWriter
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
-from metrics import ConfusionMatrix
-from models import load_model, save_model
+from .metrics import ConfusionMatrix
+from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 from torch.optim.lr_scheduler import _LRScheduler
 
