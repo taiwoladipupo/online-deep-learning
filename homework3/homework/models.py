@@ -154,6 +154,7 @@ class Detector(nn.Module):
 
         # Heads
         self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
+        self.segmentation_head.bias.data[0] = -2.0 # push down background logit
         self.depth_head = nn.Sequential(
             nn.Conv2d(16, 1, kernel_size=1),
             nn.Sigmoid()
@@ -197,6 +198,7 @@ class Detector(nn.Module):
 
         # Outputs
         logits = self.segmentation_head(u3)    # (B, 3, H, W)
+        logits = logits / 1.5 # Applying temp scalling to reduce overconfidence
         raw_depth = self.depth_head(u3).squeeze(1)  # (B, H, W)
 
         return logits, raw_depth
