@@ -47,18 +47,18 @@ class CombinedLoss(nn.Module):
 
         # Suppression for background
         suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs) * 2)
-        logits[:, 0, :, :] -= suppression * 0.6
+        logits[:, 0, :, :] -= suppression * 10.0
 
         # Encourage foreground
-        boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] +=  boost * 3.0
-        logits[:, 2, :, :] += boost * 3.0
+        boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
+        logits[:, 1, :, :] +=  boost * 12.0
+        logits[:, 2, :, :] += boost * 12.0
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
         weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
         seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
-        depth_weight = self.depth_weight if self.current_epoch >= 3 else 0.0
+        depth_weight = self.depth_weight if self.current_epoch >= 5 else 0.0
 
         seg_loss = seg_loss_fn(logits, target) # using dynamic CE
         dice = self.dice_loss(logits, target)
