@@ -178,7 +178,7 @@ def train(
 
                 depth_errors.append(torch.abs(depth_pred - depth_true).mean().item())
 
-        if epoch % 5 == 0 and batch["episode"][0] == "00000":  # just one batch to reduce clutter
+        if epoch % 5 == 0 :  # just one batch to reduce clutter
             import torchvision.utils as vutils
             from torchvision.transforms.functional import to_pil_image
 
