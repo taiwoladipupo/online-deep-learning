@@ -40,8 +40,9 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
-        assert logits.shape == ('B, 3, H, W')
-        assert target.shape == ('B, H, W')
+        assert logits.ndim == 4 and logits.shape[1] == 3, f"Expected shape (B, 3, H, W), got {logits.shape}"
+        assert target.ndim == 3, f"Expected shape (B, H, W), got {target.shape}"
+
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
         # Suppression for background
