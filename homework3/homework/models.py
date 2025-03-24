@@ -190,7 +190,7 @@ class Detector(torch.nn.Module):
                 - depth (b, h, w)
         """
         x = x.float()
-        z = (x - self.input_mean) / self.input_std
+        z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
         z = self.channel_dropout(z)
 
         # Downsampling
