@@ -99,21 +99,26 @@ class CombinedLoss(nn.Module):
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
 
+        # Fix depth shape
+        if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
+            depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
-            depth_true = depth_pred.squeeze(1)  # (B, H, W)
+            depth_true = depth_true.squeeze(1)
 
-        if depth_pred.ndim == 3 :
-            depth_pred = depth_true.squeeze(1)  # (B, H, W)
+        # Match shape
+        if logits.shape[2:] != target.shape[1:]:
+            logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
-        # Suppress class 0 for first few epochs
         if self.current_epoch < 5:
+            # Suppress class 0
             mask = target != 0
             if mask.any():
-                logits_sliced = logits[:, 1:]
-                logits_sliced = F.interpolate(logits_sliced, size=target.shape[1:], mode='bilinear',
-                                              align_corners=False)
-                ce_loss_2class = nn.CrossEntropyLoss(weight=torch.tensor([2.0, 2.5], device=logits.device))
-                ce = ce_loss_2class(logits_sliced, target.clamp(min=1))
+                # Slice and remap
+                logits = logits[:, 1:]
+                target = target.clone()
+                target = torch.where(target == 1, torch.tensor(0, device=target.device), target)
+                target = torch.where(target == 2, torch.tensor(1, device=target.device), target)
+                ce = self.ce_loss(logits, target)
             else:
                 ce = self.ce_loss(logits, target)
         else:
@@ -122,9 +127,7 @@ class CombinedLoss(nn.Module):
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.7 * ce + 0.3 * dice + self.depth_weight * depth
-        return total
-
+        return 0.7 * ce + 0.3 * dice + self.depth_weight * depth
 
 
 def match_shape(pred, target):
