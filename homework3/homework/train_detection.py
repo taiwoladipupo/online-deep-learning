@@ -175,7 +175,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
         train_losses = []
 
         for batch in train_data:
-            img = batch["image"].to(device)
+            img = batch["image"].to(device).float()
             label = batch["track"].to(device)
             depth_true = batch["depth"].to(device)
 
@@ -214,7 +214,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
 
         with torch.no_grad():
             for batch in val_data:
-                img = batch["image"].to(device)
+                img = batch["image"].to(device).float()
                 label = batch["track"].to(device)
                 depth_true = batch["depth"].to(device)
 
