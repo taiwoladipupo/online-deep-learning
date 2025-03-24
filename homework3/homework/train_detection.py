@@ -40,14 +40,18 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
+        assert logits.shape == ('B, 3, H, W')
+        assert target.shape == ('B, H, W')
+        target = target.to(logits.device)
+        depth_true = depth_true.to(depth_pred.device)
         # Suppression for background
         suppression = max(0.0, 1.5 - (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression * 0.4
 
         # Encourage foreground
         boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
-        logits[:, 1, :, :] += boost * 1.2
-        logits[:, 2, :, :] += boost * 1.0
+        logits[:, 1, :, :] += boost * 2.0
+        logits[:, 2, :, :] += boost * 2.0
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
