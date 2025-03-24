@@ -191,9 +191,9 @@ class Detector(nn.Module):
         u3 = F.interpolate(u3, size=d1.shape[-2:], mode='bilinear', align_corners=False)
         u3 = torch.cat([u3, d1], dim=1)
         u3 = self.conv3(u3)
-        print(f"u1: {u1.shape}, d3: {d3.shape}")
-        print(f"u2: {u2.shape}, d2: {d2.shape}")
-        print(f"u3: {u3.shape}, d1: {d1.shape}")
+        # print(f"u1: {u1.shape}, d3: {d3.shape}")
+        # print(f"u2: {u2.shape}, d2: {d2.shape}")
+        # print(f"u3: {u3.shape}, d1: {d1.shape}")
 
         # Outputs
         logits = self.segmentation_head(u3)    # (B, 3, H, W)

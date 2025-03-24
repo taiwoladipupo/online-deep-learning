@@ -178,8 +178,16 @@ def train(
 
                 depth_errors.append(torch.abs(depth_pred - depth_true).mean().item())
 
+        if epoch % 5 == 0 and batch["episode"][0] == "00000":  # just one batch to reduce clutter
+            import torchvision.utils as vutils
+            from torchvision.transforms.functional import to_pil_image
 
+            pred_mask = logits.argmax(dim=1).unsqueeze(1).float() / 2.0  # normalize to [0, 1]
+            true_mask = label.unsqueeze(1).float() / 2.0
+            img_vis = img[:, :3, :, :]  # (B, 3, H, W)
 
+            grid = vutils.make_grid(torch.cat([img_vis, true_mask, pred_mask], dim=0), nrow=batch_size)
+            logger.add_image("val/sample_image_pred_gt", grid, global_step=global_step)
 
         miou = confusion_matrix.compute()
         mean_depth_mae = sum(depth_errors) / len(depth_errors)
