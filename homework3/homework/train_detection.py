@@ -118,7 +118,11 @@ class CombinedLoss(nn.Module):
                 target = target.clone()
                 target = torch.where(target == 1, torch.tensor(0, device=target.device), target)
                 target = torch.where(target == 2, torch.tensor(1, device=target.device), target)
-                ce = self.ce_loss(logits, target)
+
+                # Use weights for the 2-class case (skip background)
+                weights = torch.tensor([2.0, 2.5], dtype=torch.float32).to(logits.device)
+                ce = F.cross_entropy(logits, target, weight=weights)
+
             else:
                 ce = self.ce_loss(logits, target)
         else:
