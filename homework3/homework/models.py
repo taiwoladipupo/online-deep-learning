@@ -123,105 +123,57 @@ class ConvBlock(nn.Module):
         return self.block(x)
 
 
-
-
 class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
-        Detector model with a pretrained ResNet18 encoder.
+        Detector model using MobileNetV2 as the encoder.
         Assumes input images are (B, 3, 192, 256).
-        The encoder downsamples the image while the decoder upsamples
-        with skip connections to produce:
+        Outputs:
          - Segmentation logits: (B, num_classes, 96, 128)
          - Depth map: (B, 96, 128)
         """
         super(Detector, self).__init__()
-        # Load pretrained ResNet18
-        resnet = models.resnet18(pretrained=True)
+        # Load pretrained MobileNetV2 and use its feature extractor as encoder.
+        mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1)
+        self.encoder = mobilenet.features  # This produces output of shape (B, 1280, H/32, W/32)
+        # For input (192,256), encoder output will be roughly (B,1280,6,8)
 
-        # Encoder: use conv1, bn1, relu from ResNet (no maxpool) to preserve more resolution.
-        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)  # Output: (B,64,96,128)
-        # Then include maxpool and layer1, layer2, layer3, layer4.
-        self.layer1 = nn.Sequential(resnet.maxpool, resnet.layer1)           # (B,64,48,64)
-        self.layer2 = resnet.layer2                                           # (B,128,24,32)
-        self.layer3 = resnet.layer3                                           # (B,256,12,16)
-        self.layer4 = resnet.layer4                                           # (B,512,6,8)
-
-        # Decoder: use transposed convolutions with skip connections.
-        self.up4 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)      # (B,256,12,16)
-        self.conv4 = nn.Sequential(
-            nn.Conv2d(256+256, 256, kernel_size=3, padding=1),
+        # Decoder: Upsample gradually from (B,1280,6,8) to (B,32,96,128)
+        self.decoder = nn.Sequential(
+            nn.Conv2d(1280, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
-        self.up3 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)      # (B,128,24,32)
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(128+128, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,256,12,16)
+            nn.Conv2d(256, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True)
-        )
-        self.up2 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)       # (B,64,48,64)
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(64+64, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,128,24,32)
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,64,48,64)
+            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,32,96,128)
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True)
         )
-        self.up1 = nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2)        # (B,64,96,128)
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(64+64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
-        # Final segmentation and depth heads.
-        self.seg_head = nn.Conv2d(64, num_classes, kernel_size=1)
-        self.depth_head = nn.Conv2d(64, 1, kernel_size=1)
+
+        # Segmentation head: output logits for each class.
+        self.seg_head = nn.Conv2d(32, num_classes, kernel_size=1)
+        # Depth head: output a single-channel depth map.
+        self.depth_head = nn.Conv2d(32, 1, kernel_size=1)
 
     def forward(self, x):
-        # Encoder
-        x0 = self.layer0(x)   # (B,64,96,128)
-        x1 = self.layer1(x0)  # (B,64,48,64)
-        x2 = self.layer2(x1)  # (B,128,24,32)
-        x3 = self.layer3(x2)  # (B,256,12,16)
-        x4 = self.layer4(x3)  # (B,512,6,8)
-        # Decoder with skip connections
-        d4 = self.up4(x4)     # (B,256,12,16)
-        d4 = torch.cat([d4, x3], dim=1)  # (B,512,12,16)
-        d4 = self.conv4(d4)   # (B,256,12,16)
-        d3 = self.up3(d4)     # (B,128,24,32)
-        d3 = torch.cat([d3, x2], dim=1)  # (B,256,24,32)
-        d3 = self.conv3(d3)   # (B,128,24,32)
-        d2 = self.up2(d3)     # (B,64,48,64)
-        d2 = torch.cat([d2, x1], dim=1)  # (B,128,48,64)
-        d2 = self.conv2(d2)   # (B,64,48,64)
-        d1 = self.up1(d2)     # (B,64,96,128)
-        d1 = torch.cat([d1, x0], dim=1)  # (B,128,96,128)
-        d1 = self.conv1(d1)   # (B,64,96,128)
-        seg_logits = self.seg_head(d1)  # (B, num_classes, 96,128)
-        depth = self.depth_head(d1)     # (B,1,96,128)
-        depth = depth.squeeze(1)        # (B,96,128)
+        # x: (B, 3, 192, 256)
+        features = self.encoder(x)  # (B,1280, ~6, ~8)
+        up = self.decoder(features)  # (B,32,96,128)
+        seg_logits = self.seg_head(up)  # (B, num_classes, 96, 128)
+        depth = self.depth_head(up)  # (B, 1, 96, 128)
+        depth = depth.squeeze(1)  # (B, 96, 128)
         return seg_logits, depth
-
-    def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Used for inference, takes an image and returns class labels and normalized depth.
-        This is what the metrics use as input (this is what the grader will use!).
-
-        Args:
-            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
-
-        Returns:
-            tuple of (torch.LongTensor, torch.FloatTensor):
-                - pred: class labels {0, 1, 2} with shape (b, h, w)
-                - depth: normalized depth [0, 1] with shape (b, h, w)
-        """
-        logits, raw_depth = self(x)
-        pred = logits.argmax(dim=1)
-
-        # Optional additional post-processing for depth only if needed
-        depth = raw_depth
-
-        return pred, depth
-
 
 MODEL_FACTORY = {
     "classifier": Classifier,
