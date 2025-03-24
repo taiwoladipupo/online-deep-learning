@@ -84,7 +84,26 @@ class Detector(nn.Module):
         depth = depth.squeeze(1)        # (B,96,128)
         return seg_logits, depth
 
-    def pr
+    def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Used for inference, takes an image and returns class labels and normalized depth.
+        This is what the metrics use as input (this is what the grader will use!).
+
+        Args:
+            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
+
+        Returns:
+            tuple of (torch.LongTensor, torch.FloatTensor):
+                - pred: class labels {0, 1, 2} with shape (b, h, w)
+                - depth: normalized depth [0, 1] with shape (b, h, w)
+        """
+        logits, raw_depth = self(x)
+        pred = logits.argmax(dim=1)
+
+        # Optional additional post-processing for depth only if needed
+        depth = raw_depth
+
+        return pred, depth
 
 class RandomChannelDropout(nn.Module):
     def __init__(self, channels=0.2):
