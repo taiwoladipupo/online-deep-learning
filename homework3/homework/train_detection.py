@@ -128,6 +128,11 @@ class CombinedLoss(nn.Module):
         else:
             ce = self.ce_loss(logits, target)
 
+        # Match depth_pred to depth_true spatial size
+        if depth_pred.shape != depth_true.shape:
+            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
+                                       align_corners=False).squeeze(1)
+
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
