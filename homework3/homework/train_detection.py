@@ -86,6 +86,18 @@ class CombinedLoss(nn.Module):
         assert logits.ndim == 4 and logits.shape[1] == 3, f"Expected shape (B, 3, H, W), got {logits.shape}"
         assert target.ndim == 3, f"Expected shape (B, H, W), got {target.shape}"
 
+        if depth_pred.ndim == 3:
+            depth_true = depth_true.squeeze(1)
+
+        if self.current_epoch < 5:
+            target_mask = (target != 0)
+            if target_mask.sum() > 0:
+                seg_loss = self.seg_loss(logits[:, 1:], target.clamp(min=1))
+            else:
+                seg_loss = self.seg_loss(logits, target)
+        else:
+            seg_loss = self.seg_loss(logits, target)
+
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
         depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
@@ -99,7 +111,7 @@ class CombinedLoss(nn.Module):
         logits[:, 1, :, :] += boost * 12.0
         logits[:, 2, :, :] += boost * 12.0
 
-        seg_loss = self.seg_loss(logits, target)
+        # seg_loss = self.seg_loss(logits, target)
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
