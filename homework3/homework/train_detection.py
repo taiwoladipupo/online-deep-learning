@@ -168,6 +168,9 @@ def train(
             if logits.shape[2:] != label.shape[1:]:
                 logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
 
+            if depth_pred.shape[2:] != label.shape[1:]:
+                depth_pred = F.interpolate(depth_pred, size=depth_true.shape[1:], mode='bilinear', align_corners=False)
+
             loss_val = loss_func(logits, label, depth_pred, depth_true)
 
             optimizer.zero_grad()
