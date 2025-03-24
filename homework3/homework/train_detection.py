@@ -18,7 +18,7 @@ class CombinedLoss(nn.Module):
         self.total_epochs = total_epochs
         self.current_epoch = 0
 
-        counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
+        counts = torch.tensor([0.1, 2.0, 3.0], dtype=torch.float32)
         frequency = counts / counts.sum()
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)

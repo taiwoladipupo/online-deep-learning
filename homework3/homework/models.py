@@ -107,6 +107,19 @@ class RandomChannelDropout(nn.Module):
 
         return x * mask
 
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+            super().__init__()
+            self.block = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+                nn.ReLU(),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
+                nn.ReLU(),
+            )
+
+    def forward(self, x):
+        return self.block(x)
+
 
 class Detector(torch.nn.Module):
     def __init__(
@@ -122,60 +135,69 @@ class Detector(torch.nn.Module):
             num_classes: int
         """
         super().__init__()
-        def ConvBlock(in_channels, out_channels):
-            return nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(),
-                nn.BatchNorm2d(out_channels),
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(),
-                nn.BatchNorm2d(out_channels),
-            )
-
-        def UpBlock(in_channels, out_channels):
-            return nn.Sequential(
-                nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
-                nn.ReLU(),
-            )
 
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
         self.channel_dropout = RandomChannelDropout()
 
-        self.down1 = nn.Sequential(
-            nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        )  # 96x128 → 48x64
-        self.down2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        )  # 48x64 → 24x32
-        self.down3 = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        )  # 24x32 → 12x16
-        self.down4 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        )  # 12x16 → 6x8
+        self.down1 = ConvBlock(in_channels, 16)
+        self.down2 = ConvBlock(16, 32)
+        self.down3 = ConvBlock(32, 64)
+        self.down4 = ConvBlock(64, 128)
 
-        # Upsampling path
-        self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.ReLU()
-        )  # 6x8 → 12x16
-        self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(128, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.ReLU()
-        )  # 12x16 → 24x32
-        self.up3 = nn.Sequential(
-            nn.ConvTranspose2d(64, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.ReLU()
-        )  # 24x32 → 48x64
-        self.up4 = nn.Sequential(
-            nn.ConvTranspose2d(32, 8, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.ReLU()
-        )  # 48x64 → 96x128
+        self.pool = nn.MaxPool2d(2)
 
-        self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
-        self.depth = nn.Sequential(nn.Conv2d(8, 1, kernel_size=1), nn.Sigmoid())
+        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.conv1 = ConvBlock(128, 64)
+
+        self.up2 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
+        self.conv2 = ConvBlock(64, 32)
+
+        self.up3 = nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2)
+        self.conv3 = ConvBlock(32, 16)
+
+
+        self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
+        self.depth_head = nn.Sequential(
+            nn.Conv2d(16, num_classes, kernel_size=1),
+            nn.Sigmoid()
+
+        )
+        #
+        # self.down1 = nn.Sequential(
+        #     nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1), nn.ReLU()
+        # )  # 96x128 → 48x64
+        # self.down2 = nn.Sequential(
+        #     nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), nn.ReLU()
+        # )  # 48x64 → 24x32
+        # self.down3 = nn.Sequential(
+        #     nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.ReLU()
+        # )  # 24x32 → 12x16
+        # self.down4 = nn.Sequential(
+        #     nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU()
+        # )  # 12x16 → 6x8
+        #
+        # # Upsampling path
+        # self.up1 = nn.Sequential(
+        #     nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
+        #     nn.ReLU()
+        # )  # 6x8 → 12x16
+        # self.up2 = nn.Sequential(
+        #     nn.ConvTranspose2d(128, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+        #     nn.ReLU()
+        # )  # 12x16 → 24x32
+        # self.up3 = nn.Sequential(
+        #     nn.ConvTranspose2d(64, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+        #     nn.ReLU()
+        # )  # 24x32 → 48x64
+        # self.up4 = nn.Sequential(
+        #     nn.ConvTranspose2d(32, 8, kernel_size=3, stride=2, padding=1, output_padding=1),
+        #     nn.ReLU()
+        # )  # 48x64 → 96x128
+        #
+        # self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
+        # self.depth = nn.Sequential(nn.Conv2d(8, 1, kernel_size=1), nn.Sigmoid())
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Used in training, takes an image and returns raw logits and raw depth.
@@ -199,26 +221,38 @@ class Detector(torch.nn.Module):
         d3 = self.down3(d2)  # (B, 64, 12, 16)
         d4 = self.down4(d3)  # (B, 128, 6, 8)
 
-        # Upsampling + skip connections
         u1 = self.up1(d4)  # (B, 64, 12, 16)
-        if u1.shape[-2:] != d3.shape[-2:]:
-            d3 = F.interpolate(d3, size=u1.shape[-2:], mode='bilinear', align_corners=False)
         u1 = torch.cat([u1, d3], dim=1)  # -> (B, 128, 12, 16)
+        u1 = self.conv1(u1)
 
-        u2 = self.up2(u1)  # (B, 32, 24, 32)
-        if u2.shape[-2:] != d2.shape[-2:]:
-            d2 = F.interpolate(d2, size=u2.shape[-2:], mode='bilinear', align_corners=False)
-        u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, 24, 32)
+        u2 = self.up2(u1)  # (B, 64, 12, 16)
+        u2 = torch.cat([u2, d2], dim=1)  # -> (B, 128, 12, 16)
+        u2 = self.conv1(u2)
 
-        u3 = self.up3(u2)  # (B, 16, 48, 64)
-        if u3.shape[-2:] != d1.shape[-2:]:
-            d1 = F.interpolate(d1, size=u3.shape[-2:], mode='bilinear', align_corners=False)
-        u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, 48, 64)
+        u3 = self.up3(u2)
+        u3 = torch.cat([u3, d1], dim=1)  # -> (B, 128, 12, 16)
+        u3 = self.conv1(u3)
 
-        u4 = self.up4(u3)  # (B, 8, 96, 128)
+        # Upsampling + skip connections
+        # u1 = self.up1(d4)  # (B, 64, 12, 16)
+        # if u1.shape[-2:] != d3.shape[-2:]:
+        #     d3 = F.interpolate(d3, size=u1.shape[-2:], mode='bilinear', align_corners=False)
+        # u1 = torch.cat([u1, d3], dim=1)  # -> (B, 128, 12, 16)
+        #
+        # u2 = self.up2(u1)  # (B, 32, 24, 32)
+        # if u2.shape[-2:] != d2.shape[-2:]:
+        #     d2 = F.interpolate(d2, size=u2.shape[-2:], mode='bilinear', align_corners=False)
+        # u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, 24, 32)
+        #
+        # u3 = self.up3(u2)  # (B, 16, 48, 64)
+        # if u3.shape[-2:] != d1.shape[-2:]:
+        #     d1 = F.interpolate(d1, size=u3.shape[-2:], mode='bilinear', align_corners=False)
+        # u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, 48, 64)
+        #
+        # u4 = self.up4(u3)  # (B, 8, 96, 128)
 
-        logits = self.logits(u4)  # (B, 3, 96, 128)
-        raw_depth = self.depth(u4).squeeze(1)  # (B, 96, 128)
+        logits = self.segmentation_head(u3) # (B, 3, 96, 128)
+        raw_depth = self.depth(u3).squeeze(1)  # (B, 96, 128)
         return logits, raw_depth
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
