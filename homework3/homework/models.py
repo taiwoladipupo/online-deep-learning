@@ -227,27 +227,25 @@ class Detector(torch.nn.Module):
 
         u2 = self.up2(u1)  # (B, 64, 12, 16)
         u2 = torch.cat([u2, d2], dim=1)  # -> (B, 128, 12, 16)
-        u2 = self.conv1(u2)
+        u2 = self.conv2(u2)
 
         u3 = self.up3(u2)
         u3 = torch.cat([u3, d1], dim=1)  # -> (B, 128, 12, 16)
-        u3 = self.conv1(u3)
+        u3 = self.conv3(u3)
 
         # Upsampling + skip connections
         # u1 = self.up1(d4)  # (B, 64, 12, 16)
-        # if u1.shape[-2:] != d3.shape[-2:]:
-        #     d3 = F.interpolate(d3, size=u1.shape[-2:], mode='bilinear', align_corners=False)
-        # u1 = torch.cat([u1, d3], dim=1)  # -> (B, 128, 12, 16)
-        #
-        # u2 = self.up2(u1)  # (B, 32, 24, 32)
-        # if u2.shape[-2:] != d2.shape[-2:]:
-        #     d2 = F.interpolate(d2, size=u2.shape[-2:], mode='bilinear', align_corners=False)
-        # u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, 24, 32)
-        #
-        # u3 = self.up3(u2)  # (B, 16, 48, 64)
-        # if u3.shape[-2:] != d1.shape[-2:]:
-        #     d1 = F.interpolate(d1, size=u3.shape[-2:], mode='bilinear', align_corners=False)
-        # u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, 48, 64)
+        if u1.shape[-2:] != d3.shape[-2:]:
+            d3 = F.interpolate(d3, size=u1.shape[-2:], mode='bilinear', align_corners=False)
+        u1 = torch.cat([u1, d3], dim=1)  # -> (B, 128, 12, 16)
+
+        if u2.shape[-2:] != d2.shape[-2:]:
+            d2 = F.interpolate(d2, size=u2.shape[-2:], mode='bilinear', align_corners=False)
+        u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, 24, 32)
+
+        if u3.shape[-2:] != d1.shape[-2:]:
+            d1 = F.interpolate(d1, size=u3.shape[-2:], mode='bilinear', align_corners=False)
+        u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, 48, 64)
         #
         # u4 = self.up4(u3)  # (B, 8, 96, 128)
 
