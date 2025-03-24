@@ -107,6 +107,12 @@ class CombinedLoss(nn.Module):
 
         return total
 
+def match_shape(pred, target):
+    if pred.shape[2:] != target.shape[1:]:
+        pred = F.interpolate(pred, size=target.shape[1:], mode='bilinear', align_corners=False)
+    return pred
+
+
 def train(
         exp_dir: str = "logs",
         model_name: str = "Detector",
@@ -165,11 +171,8 @@ def train(
             logits, depth_pred = model(img)
             # resizes the depth prediction to match the target size
             # Resize logits to match label size if needed
-            if logits.shape[2:] != label.shape[1:]:
-                logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
-
-            if depth_pred.shape[2:] != label.shape[1:]:
-                depth_pred = F.interpolate(depth_pred, size=depth_true.shape[1:], mode='bilinear', align_corners=False)
+            logits = match_shape(logits, label)
+            depth_pred = match_shape(depth_pred, depth_true)
 
             loss_val = loss_func(logits, label, depth_pred, depth_true)
 
@@ -192,6 +195,8 @@ def train(
                 depth_true = batch['depth'].to(device)
 
                 logits, depth_pred = model(img)
+                logits = match_shape(logits, label)
+                depth_pred = match_shape(depth_pred, depth_true)
                 val_loss = loss_func(logits, label, depth_pred, depth_true)
                 metrics["val_acc"].append(val_loss.item())
 
