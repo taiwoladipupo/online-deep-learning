@@ -25,7 +25,7 @@ class CombinedLoss(nn.Module):
         class_weights = class_weights / class_weights.sum() * len(class_weights)
         self.class_weights = class_weights.to(device)
 
-        self.seg_loss = FocalLoss(alpha=[0.5, 2.0, 3.0], gamma=2.0)
+        self.seg_loss = FocalLoss(alpha=[0.1, 5.0, 6.0], gamma=2.0)
         self.depth_loss = nn.L1Loss()
 
         self.dice_loss = DiceLoss()
@@ -57,8 +57,8 @@ class CombinedLoss(nn.Module):
 
         # Encourage foreground
         boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] +=  boost * 2.0
-        logits[:, 2, :, :] += boost * 2.0
+        logits[:, 1, :, :] +=  boost * 8.0
+        logits[:, 2, :, :] += boost * 8.0
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
@@ -79,24 +79,20 @@ class FocalLoss(nn.Module):
     def __init__(self, gamma=2.0, alpha=None):
         super().__init__()
         self.gamma = gamma
-        if alpha is not None:
-            self.alpha = torch.tensor(alpha, dtype=torch.float32)
-        else:
-            self.alpha = None
+        self.alpha = alpha
 
-    def forward(self, input, target):
-        log_probs = F.log_softmax(input, dim=1)
+    def forward(self, inputs, targets):
+        log_probs = F.log_softmax(inputs, dim=1)
         probs = torch.exp(log_probs)
-        target_one_hot = F.one_hot(target, num_classes=input.size(1)).permute(0, 3, 1, 2).float()
+        ce_loss = F.nll_loss(log_probs, targets, reduction='none')
 
         if self.alpha is not None:
-            alpha = self.alpha.to(input.device).view(1, -1, 1, 1)
-        else:
-            alpha = 1.0
+            alpha = torch.tensor(self.alpha, device=inputs.device)[targets]
+            ce_loss *= alpha
 
-        focal_weight = alpha * (1 - probs) ** self.gamma
-        loss = -focal_weight * log_probs * target_one_hot
-        return loss.sum(dim=1).mean()
+        focal = (1 - probs.gather(1, targets.unsqueeze(1)).squeeze(1)) ** self.gamma
+        loss = focal * ce_loss
+        return loss.mean()
 
 
 class DiceLoss(nn.Module):
