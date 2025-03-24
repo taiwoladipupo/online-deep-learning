@@ -163,6 +163,9 @@ def train(
                 pixel_counter[u] += c
 
             logits, depth_pred = model(img)
+            # resizes the depth prediction to match the target size
+            if logits.shape[2:] != label.shape[1:]:
+                logits = F.interpolate(logits, label.shape[1:], model='bilinear', align_corners=False)
             loss_val = loss_func(logits, label, depth_pred, depth_true)
 
             optimizer.zero_grad()
