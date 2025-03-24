@@ -30,24 +30,37 @@ class CombinedLoss(nn.Module):
         self.dice_loss = DiceLoss()
         self.depth_weight = 0.05
 
+        self.total_epochs = total_epochs
+        self.current_epoch = 0
+
+        if device:
+            self.to(device)
+
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
         # Suppression for background
-        suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression
+        suppression = max(0.0, 1.5 - (self.current_epoch / self.total_epochs))
+        logits[:, 0, :, :] -= suppression * 0.4
 
         # Encourage foreground
         boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
-        logits[:, 1, :, :] += boost
-        logits[:, 2, :, :] += boost
+        logits[:, 1, :, :] += boost * 1.2
+        logits[:, 2, :, :] += boost * 1.0
 
-        seg_loss = self.seg_loss(logits, target)
+        # Dynamic CE class weights
+        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
+        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
+        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
+
+        seg_loss = self.seg_loss_fn(logits, target) # using dynamic CE
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        return seg_loss + 0.7 * dice + self.depth_weight * depth
+        total = seg_loss + 0.7 * dice + self.depth_weight * depth
+
+        return total
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
