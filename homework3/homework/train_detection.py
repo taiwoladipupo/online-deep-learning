@@ -35,7 +35,7 @@ class CombinedLoss(nn.Module):
         self.current_epoch = 0
 
         # Adjust these weights based on class imbalance stats
-        class_weights = torch.tensor([1.0, 3.0, 4.0], dtype=torch.float32)
+        class_weights = torch.tensor([1.0, 2.0, 2.5], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.dice_loss = DiceLoss()
         self.depth_loss = nn.L1Loss()
@@ -48,12 +48,22 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
+        if self.current_epoch < 5:
+            # Suppress loss from class 0 in first few epochs
+            target_mask = (target != 0)
+            if target_mask.sum() > 0:
+                ce = self.ce_loss(logits[:, 1:], target.clamp(min=1))  # skip class 0
+            else:
+                ce = self.ce_loss(logits, target)
+        else:
+            ce = self.ce_loss(logits, target)
+
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
         if depth_true.ndim == 4:
             depth_true = depth_true.squeeze(1)
 
-        ce = self.ce_loss(logits, target)
+        #ce = self.ce_loss(logits, target)
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
@@ -159,6 +169,12 @@ def train(
             probs = F.softmax(logits, dim=1)
             avg_probs = probs.mean(dim=(0,2,3))
             print("Average class probabilities:", avg_probs)
+
+            with torch.no_grad():
+                pred_classes = torch.argmax(logits, dim=1)
+                unique, counts = torch.unique(pred_classes, return_counts=True)
+                total = pred_classes.numel()
+                print("Predicted distribution:", {int(k): f"{(v / total) * 100:.2f}%" for k, v in zip(unique, counts)})
 
         if epoch % 5 == 0 :  # just one batch to reduce clutter
             import torchvision.utils as vutils
