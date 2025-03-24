@@ -14,44 +14,46 @@ from .metrics import ConfusionMatrix
 
 class CombinedLoss(nn.Module):
     def __init__(self, device=None):
-        super(CombinedLoss, self).__init__()
+        super().__init__()
+        self.device = device if device else torch.device("cpu")
+
+        # Default class weights
         counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
         frequency = counts / counts.sum()
-        class_weights = torch.log(1 / (frequency + 1e-6))
-        class_weights = class_weights / class_weights.sum() * len(class_weights)
-        self.class_weights = class_weights
+        base_weights = torch.log(1 / (frequency + 1e-6))
+        base_weights = base_weights / base_weights.sum() * len(base_weights)
+        self.base_weights = base_weights.to(self.device)
 
-        self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
+        self.seg_loss = nn.CrossEntropyLoss(weight=self.base_weights)
         self.depth_loss = nn.L1Loss()
-        self.seg_depth_weight = 0.05
+        self.tversky_loss = TverskyLoss()
+        self.depth_weight = 0.05
 
         self.current_epoch = 0
         self.total_epochs = 25
 
-
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
-    def forward(self, logits: torch.Tensor, target: torch.LongTensor, depth_pred, depth_true) -> torch.Tensor:
-        # Dynamic class 0 suppression
+    def forward(self, logits, target, depth_pred, depth_true):
+        # Suppression/boost logic
         suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression
-
-        # Foreground boost
+        logits[:, 0] -= suppression
         boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
-        logits[:, 1, :, :] += boost * 1.2
-        logits[:, 2, :, :] += boost * 1.0
+        logits[:, 1] += boost * 1.2
+        logits[:, 2] += boost * 1.0
 
-        # Dynamic cross-entropy weights
-        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
-        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
-        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
+        # Dynamic weights
+        dynamic_weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
+        dynamic_weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
+        seg_loss_fn = nn.CrossEntropyLoss(weight=dynamic_weights)
 
-        segmentation_loss = self.seg_loss(logits, target)
-        tversky = self.tversky_loss(logits, target)
+        segmentation_loss = seg_loss_fn(logits, target)
         depth_loss = self.depth_loss(depth_pred, depth_true)
+        tversky = self.tversky_loss(logits, target)
 
         return segmentation_loss + self.depth_weight * tversky * depth_loss
+
 
 class TverskyLoss(nn.Module):
     def __init__(self, alpha=0.7, beta=0.3, smooth=1e-6):
