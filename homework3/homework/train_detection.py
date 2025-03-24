@@ -56,6 +56,24 @@ class DiceLoss(nn.Module):
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
 
+class TverskyLoss(nn.Module):
+    def __init__(self, alpha=0.3, beta=0.7, smooth=1e-6):
+        super(TverskyLoss, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.smooth = smooth
+    def forward(self, logits, target):
+        # logits: (B, C, H, W), target: (B, H, W)
+        num_classes = logits.shape[1]
+        probs = torch.softmax(logits, dim=1)
+        target_one_hot = F.one_hot(target, num_classes=num_classes).permute(0, 3, 1, 2).float()
+        TP = (probs * target_one_hot).sum(dim=(2, 3))
+        FP = (probs * (1 - target_one_hot)).sum(dim=(2, 3))
+        FN = ((1 - probs) * target_one_hot).sum(dim=(2, 3))
+        tversky_index = (TP + self.smooth) / (TP + self.alpha * FN + self.beta * FP + self.smooth)
+        loss = 1 - tversky_index.mean()
+        return loss
+
 
 class CombinedLoss(nn.Module):
     def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
@@ -75,18 +93,16 @@ class CombinedLoss(nn.Module):
         self.use_focal_loss = use_focal_loss
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
-
-        # Class weights: background = 0.1, class1 = 10.0, class2 = 10.0
-        self.register_buffer("class_weights", torch.tensor([0.1, 10.0, 10.0], dtype=torch.float32))
+        # Set class weights: background=0.1, classes 1 & 2=20.0
+        self.register_buffer("class_weights", torch.tensor([0.1, 20.0, 20.0], dtype=torch.float32))
         if device is not None:
             self.class_weights = self.class_weights.to(device)
         if self.use_focal_loss:
             self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=1.0)
         else:
             self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
-        self.dice_loss = DiceLoss()
+        self.tversky_loss = TverskyLoss(alpha=0.3, beta=0.7)
         self.depth_loss = nn.L1Loss()
-
         if device:
             self.to(device)
 
@@ -97,16 +113,11 @@ class CombinedLoss(nn.Module):
         device = logits.device
         target = target.to(device)
         depth_true = depth_true.to(device)
-
-        # Ensure logits match target shape
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
-
         seg_loss_ce = self.seg_loss(logits, target)
-        seg_loss_dice = self.dice_loss(logits, target)
-        seg_loss_total = seg_loss_ce + seg_loss_dice
-
-        # Process depth (if used)
+        seg_loss_tv = self.tversky_loss(logits, target)
+        seg_loss_total = seg_loss_ce + seg_loss_tv
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
@@ -115,8 +126,8 @@ class CombinedLoss(nn.Module):
             depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                        align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
-
         return self.seg_loss_weight * seg_loss_total + self.depth_loss_weight * depth_loss_val
+
 
 def visualize_sample(data_loader, num_samples=1):
     """
