@@ -7,6 +7,9 @@ import torch.utils.tensorboard as tb
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
+
+from sympy.physics.control.control_plots import plt
+
 from .metrics import ConfusionMatrix
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
@@ -129,6 +132,43 @@ class CombinedLoss(nn.Module):
         return total_loss
 
 
+def visualize_sample(data_loader, num_samples=1):
+    """
+    Visualizes one sample (image and segmentation mask) from the provided data loader.
+    """
+    for i, batch in enumerate(data_loader):
+        # Take the first sample in the batch
+        image = batch["image"][0].permute(1, 2, 0).cpu().numpy()  # (H, W, C)
+        mask = batch["track"][0].cpu().numpy()  # (H, W)
+
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        plt.title("Input Image")
+        # Adjust if your images are not in uint8
+        plt.imshow(image.astype(np.uint8))
+        plt.subplot(1, 2, 2)
+        plt.title("Segmentation Mask")
+        plt.imshow(mask, cmap='jet')
+        plt.colorbar()
+        plt.show()
+
+        if i + 1 >= num_samples:
+            break
+
+
+def print_label_histogram(data_loader):
+    """
+    Computes and prints the overall label distribution across the dataset.
+    """
+    all_labels = []
+    for batch in data_loader:
+        labels = batch["track"].view(-1)
+        all_labels.extend(labels.cpu().numpy())
+    all_labels = np.array(all_labels)
+    unique, counts = np.unique(all_labels, return_counts=True)
+    distribution = dict(zip(unique, counts))
+    print("Overall label distribution:", distribution)
+
 class WarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, total_steps, last_epoch=-1):
         self.warmup_steps = warmup_steps
@@ -171,6 +211,10 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
 
     train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size, num_workers=2)
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
+
+    print("Verifying training labels...")
+    visualize_sample(train_data, num_samples=1)
+    print_label_histogram(train_data)
 
     global_step = 0
     best_miou = 0
