@@ -113,6 +113,10 @@ def match_shape(pred, target):
         pred = F.interpolate(pred, size=target.shape[1:], mode='bilinear', align_corners=False)
     return pred
 
+def warmup_scheduler(optimizer, warmup_epochs=3):
+    def lr_lambda(epoch):
+        return float(epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
