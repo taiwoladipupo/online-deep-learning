@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.utils.tensorboard as tb
 from torch import nn
+import torch.nn.functional as F
 from torch.cuda import device
 
 from .models import load_model, save_model
@@ -26,12 +27,9 @@ class CombinedLoss(nn.Module):
 
         self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
         self.depth_loss = nn.L1Loss()
-        self.tversky_loss = TverskyLoss()
+
         self.dice_loss = DiceLoss()
         self.depth_weight = 0.05
-
-        self.total_epochs = total_epochs
-        self.current_epoch = 0
 
         if device:
             self.to(device)
@@ -45,6 +43,7 @@ class CombinedLoss(nn.Module):
 
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
+        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
         # Suppression for background
         suppression = max(0.0, 1.5 - (self.current_epoch / self.total_epochs))
         logits[:, 0, :, :] -= suppression * 0.4
@@ -59,11 +58,12 @@ class CombinedLoss(nn.Module):
         weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
         seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
 
-        seg_loss = seg_loss_fn(logits, target) # using dynamic CE
+        seg_loss = seg_loss_fn(logits, target)# using dynamic CE
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = seg_loss + 0.7 * dice + self.depth_weight * depth
+        total = total_loss = 0.7 * seg_loss + 0.3 * dice + self.depth_weight * depth
+
 
         return total
 
@@ -83,24 +83,6 @@ class DiceLoss(nn.Module):
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
 
-class TverskyLoss(nn.Module):
-    def __init__(self, alpha=0.7, beta=0.3, smooth=1e-6):
-        super().__init__()
-        self.alpha = alpha
-        self.beta = beta
-        self.smooth = smooth
-
-    def forward(self, logits, target):
-        probs = torch.softmax(logits, dim=1)
-        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
-        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
-
-        TP = (probs * target_one_hot).sum(dim=(0, 2, 3))
-        FP = (probs * (1 - target_one_hot)).sum(dim=(0, 2, 3))
-        FN = ((1 - probs) * target_one_hot).sum(dim=(0, 2, 3))
-
-        tversky = (TP + self.smooth) / (TP + self.alpha * FP + self.beta * FN + self.smooth)
-        return 1 - tversky.mean()
 
 def warmup_schedulerr(optimizer, warmup_epochs=3):
     def lr_lambda(epoch):
@@ -154,6 +136,7 @@ def train(
 
         model.train()
         loss_func.set_epoch(epoch)
+        loss_func(device, total_epochs=num_epoch)
 
         pixel_counter = Counter()
         for batch in train_data:
@@ -195,6 +178,14 @@ def train(
 
                 depth_errors.append(torch.abs(depth_pred - depth_true).mean().item())
 
+                best_miou = 0
+                best_model = None
+                if miou["iou"] > best_miou:
+                    best_miou = miou["iou"]
+                    best_model = model
+
+        if best_model:
+            torch.save(best_model, log_dir / "best_model.th")
         miou = confusion_matrix.compute()
         mean_depth_mae = sum(depth_errors) / len(depth_errors)
 
