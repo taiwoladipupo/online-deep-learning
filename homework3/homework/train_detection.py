@@ -44,7 +44,7 @@ class CombinedLoss(nn.Module):
         assert logits.ndim == 4 and logits.shape[1] == 3, f"Expected shape (B, 3, H, W), got {logits.shape}"
         assert target.ndim == 3, f"Expected shape (B, H, W), got {target.shape}"
 
-        if self.current_epoch < 2:
+        if self.current_epoch == 0:
             logits[:, 0] = -1e9  # Force it to ignore background
 
         target = target.to(logits.device)

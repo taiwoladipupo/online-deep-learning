@@ -154,6 +154,7 @@ class Detector(nn.Module):
 
         # Heads
         self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
+        nn.init.constant_(self.segmentation_head.bias, 0.0)
         self.segmentation_head.bias.data[0] = -2.0 # push down background logit
         self.depth_head = nn.Sequential(
             nn.Conv2d(16, 1, kernel_size=1),
