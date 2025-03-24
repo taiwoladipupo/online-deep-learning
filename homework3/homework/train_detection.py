@@ -47,23 +47,24 @@ class CombinedLoss(nn.Module):
 
         # Suppression for background
         suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs) * 2)
-        logits[:, 0, :, :] -= suppression * 0.5
+        logits[:, 0, :, :] -= suppression * 0.6
 
         # Encourage foreground
         boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] += 2.5 * boost
-        logits[:, 2, :, :] += 2.0 * boost
+        logits[:, 1, :, :] +=  boost * 3.0
+        logits[:, 2, :, :] += boost * 3.0
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
         weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
         seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
+        depth_weight = self.depth_weight if self.current_epoch >= 3 else 0.0
 
         seg_loss = seg_loss_fn(logits, target) # using dynamic CE
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.65 * seg_loss + 0.35 * dice + self.depth_weight * depth
+        total = 0.7 * seg_loss + 0.35 * dice + depth_weight * depth
 
         return total
 
@@ -95,7 +96,7 @@ def train(
         exp_dir: str = "logs",
         model_name: str = "detector",
         num_epoch: int = 50,
-        lr: float = 1e-3,
+        lr: float = 5e-4,
         batch_size: int = 16,
         seed: int = 2024,
         transform_pipeline: str = "default",
