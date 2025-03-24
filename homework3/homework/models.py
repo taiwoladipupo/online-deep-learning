@@ -222,7 +222,10 @@ class Detector(torch.nn.Module):
         u4 = self.up4(u3)                # -> (B, 8, H, W)
 
         logits = self.logits(u4)
+        logits = F.interpolate(logits, size=x.shape[-2:], mode='bilinear', align_corners=False)
+
         raw_depth = self.depth(u4).squeeze(1)  # output (B, H, W)
+        raw_depth = F.interpolate(raw_depth.unsqueeze(1), size=x.shape[-2:], mode='bilinear', align_corners=False)
 
         return logits, raw_depth
 
