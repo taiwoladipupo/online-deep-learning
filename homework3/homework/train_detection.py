@@ -71,11 +71,11 @@ class CombinedLoss(nn.Module):
 
         # Updated class weights: background has low weight; lane boundaries & other small classes higher.
         # self.class_weights = torch.tensor([0.1, 4.0, 5.0], dtype=torch.float32)
-        self.register_buffer("class_weights", torch.tensor([0.1, 10.0, 10.0], dtype=torch.float32))
+        self.register_buffer("class_weights", torch.tensor([0.1, 20.0, 10.0], dtype=torch.float32))
         if device is not None:
             self.class_weights = self.class_weights.to(device)
         if self.use_focal_loss:
-            self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=2.0)
+            self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=1.0)
         else:
             self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
         self.dice_loss = DiceLoss()
