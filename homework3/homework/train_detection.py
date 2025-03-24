@@ -107,7 +107,15 @@ class CombinedLoss(nn.Module):
 
         return total
 
-def train(exp_dir, model_name, num_epoch=50, lr=1e-3, seed=2024, transform_pipeline="default", **kwargs):
+def train(
+        exp_dir: str = "logs",
+        model_name: str = "Detector",
+        num_epoch: int = 50,
+        lr: float = 1e-3,
+        batch_size: int = 128,
+        seed: int = 2024,
+        **kwargs,
+):
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
@@ -273,4 +281,4 @@ if __name__ == "__main__":
     parser.add_argument("--transform_pipeline", type=str, default="default")
 
     args = parser.parse_args()
-    train(args.exp_dir, args.model_name, args.num_epoch, args.lr, args.seed, args.transform_pipeline)
+    train(**vars(parser.parse_args()))
