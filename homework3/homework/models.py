@@ -130,19 +130,17 @@ class Detector(nn.Module):
 
         self.channel_dropout = RandomChannelDropout()
 
-        # Encoder
-        self.down1 = ConvBlock(in_channels, 16)  # 96x128 → 96x128
-        self.pool1 = nn.MaxPool2d(2)              # 96x128 → 48x64
+        self.down1 = ConvBlock(in_channels, 16)
+        self.pool1 = nn.MaxPool2d(2)
 
         self.down2 = ConvBlock(16, 32)
-        self.pool2 = nn.MaxPool2d(2)              # 48x64 → 24x32
+        self.pool2 = nn.MaxPool2d(2)
 
         self.down3 = ConvBlock(32, 64)
-        self.pool3 = nn.MaxPool2d(2)              # 24x32 → 12x16
+        self.pool3 = nn.MaxPool2d(2)
 
-        self.bottom = ConvBlock(64, 128)          # 12x16
+        self.bottom = ConvBlock(64, 128)
 
-        # Decoder
         self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
         self.conv1 = ConvBlock(128, 64)
 
@@ -152,10 +150,10 @@ class Detector(nn.Module):
         self.up3 = nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2)
         self.conv3 = ConvBlock(32, 16)
 
-        # Heads
         self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
         nn.init.constant_(self.segmentation_head.bias, 0.0)
-        self.segmentation_head.bias.data[0] = -2.0 # push down background logit
+        self.segmentation_head.bias.data[0] = -2.0  # Suppress background bias
+
         self.depth_head = nn.Sequential(
             nn.Conv2d(16, 1, kernel_size=1),
             nn.Sigmoid()
@@ -166,43 +164,38 @@ class Detector(nn.Module):
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
         x = self.channel_dropout(x)
 
-        # Encoder
-        d1 = self.down1(x)        # (B, 16, 96, 128)
+        d1 = self.down1(x)
         p1 = self.pool1(d1)
 
-        d2 = self.down2(p1)       # (B, 32, 48, 64)
+        d2 = self.down2(p1)
         p2 = self.pool2(d2)
 
-        d3 = self.down3(p2)       # (B, 64, 24, 32)
+        d3 = self.down3(p2)
         p3 = self.pool3(d3)
 
-        b = self.bottom(p3)       # (B, 128, 12, 16)
+        b = self.bottom(p3)
 
-        # Decoder with skip connections
-        u1 = self.up1(b)                       # (B, 64, 24, 32)
+        u1 = self.up1(b)
         u1 = F.interpolate(u1, size=d3.shape[-2:], mode='bilinear', align_corners=False)
         u1 = torch.cat([u1, d3], dim=1)
         u1 = self.conv1(u1)
 
-        u2 = self.up2(u1)                      # (B, 32, 48, 64)
+        u2 = self.up2(u1)
         u2 = F.interpolate(u2, size=d2.shape[-2:], mode='bilinear', align_corners=False)
         u2 = torch.cat([u2, d2], dim=1)
         u2 = self.conv2(u2)
 
-        u3 = self.up3(u2)                      # (B, 16, 96, 128)
+        u3 = self.up3(u2)
         u3 = F.interpolate(u3, size=d1.shape[-2:], mode='bilinear', align_corners=False)
         u3 = torch.cat([u3, d1], dim=1)
         u3 = self.conv3(u3)
-        # print(f"u1: {u1.shape}, d3: {d3.shape}")
-        # print(f"u2: {u2.shape}, d2: {d2.shape}")
-        # print(f"u3: {u3.shape}, d1: {d1.shape}")
 
-        # Outputs
-        logits = self.segmentation_head(u3)    # (B, 3, H, W)
-        logits = logits / 1.5 # Applying temp scalling to reduce overconfidence
-        raw_depth = self.depth_head(u3).squeeze(1)  # (B, H, W)
+        logits = self.segmentation_head(u3)
+        logits = logits / 1.5  # Temperature scaling
+        raw_depth = self.depth_head(u3).squeeze(1)
 
         return logits, raw_depth
+
 
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

@@ -19,61 +19,32 @@ class CombinedLoss(nn.Module):
         self.total_epochs = total_epochs
         self.current_epoch = 0
 
-        counts = torch.tensor([0.1, 2.0, 3.0], dtype=torch.float32)
-        frequency = counts / counts.sum()
-        class_weights = torch.log(1 / (frequency + 1e-6))
-        class_weights = class_weights / class_weights.sum() * len(class_weights)
-        self.class_weights = class_weights.to(device)
-        alpha = torch.tensor([0.1,4.0,6.0], device=device)
-
-        self.seg_loss = FocalLoss(alpha=alpha)
-        self.depth_loss = nn.L1Loss()
-
-        self.dice_loss = DiceLoss()
         self.depth_weight = 0.05
+        self.dice_loss = DiceLoss()
+        self.depth_loss = nn.L1Loss()
+        self.focal = FocalLoss(alpha=[0.2, 0.4, 0.4], gamma=2)
 
         if device:
             self.to(device)
-
-
 
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
-        assert logits.ndim == 4 and logits.shape[1] == 3, f"Expected shape (B, 3, H, W), got {logits.shape}"
-        assert target.ndim == 3, f"Expected shape (B, H, W), got {target.shape}"
-
-        if self.current_epoch == 0:
-            logits[:, 0] = -1e9  # Force it to ignore background
-
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
-        if  depth_true.ndim ==4:
-           depth_true = depth_true.squeeze(1)
+        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
 
-        # Suppression for background
-        suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression * 2.0
+        if self.current_epoch == 0:
+            logits[:, 0] -= 2.0  # Temporary background suppression
 
-        # Encourage foreground
-        boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] +=  boost * 3.0
-        logits[:, 2, :, :] += boost * 3.0
-
-        # Dynamic CE class weights
-        weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
-        weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
-        seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
-        depth_weight = self.depth_weight if self.current_epoch >= 5 else 0.0
-
-        seg_loss = self.seg_loss(logits, target) #seg_loss_fn(logits, target) # using dynamic CE
+        seg_loss = self.focal(logits, target)
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.6 * seg_loss + 0.3 * dice + 0.1 * depth
+        total_loss = 0.7 * seg_loss + 0.3 * dice + self.depth_weight * depth
+        return total_loss
 
-        return total
 
 
 class FocalLoss(nn.Module):
