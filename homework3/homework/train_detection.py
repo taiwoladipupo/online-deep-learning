@@ -56,13 +56,18 @@ class DiceLoss(nn.Module):
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
 
+
 class CombinedLoss(nn.Module):
     def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
-                 seg_loss_weight=1.0, depth_loss_weight=0.0, remap_target=False):
+                 seg_loss_weight=1.0, depth_loss_weight=0.0):
         """
-        Combined loss for segmentation and depth.
-        Here, depth_loss_weight is set to 0 to focus on segmentation.
-        Class weights have been increased for classes 1 and 2.
+        Combined loss for segmentation (focal + dice) and optional depth regression.
+
+        Here, we assume:
+         - Label 0 is background (dominant)
+         - Labels 1 and 2 are rare classes (lane boundaries)
+        We set class weights to [0.1, 10.0, 10.0], so background is penalized less
+        and rare classes are penalized more.
         """
         super().__init__()
         self.total_epochs = total_epochs
@@ -70,11 +75,9 @@ class CombinedLoss(nn.Module):
         self.use_focal_loss = use_focal_loss
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
-        self.remap_target = remap_target
 
-        # Updated class weights: background has low weight; lane boundaries & other small classes higher.
-        # self.class_weights = torch.tensor([0.1, 4.0, 5.0], dtype=torch.float32)
-        self.register_buffer("class_weights", torch.tensor([20.0, 10.0, 0.1], dtype=torch.float32))
+        # Class weights: background = 0.1, class1 = 10.0, class2 = 10.0
+        self.register_buffer("class_weights", torch.tensor([0.1, 10.0, 10.0], dtype=torch.float32))
         if device is not None:
             self.class_weights = self.class_weights.to(device)
         if self.use_focal_loss:
@@ -90,26 +93,12 @@ class CombinedLoss(nn.Module):
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
-    def _remap_target(self, target):
-        # Remap targets as described:
-        # original 2 -> new 0; original 0 -> new 1; original 1 -> new 2.
-        # Create a copy to avoid in-place modifications.
-        new_target = target.clone()
-        new_target[target == 2] = -1  # mark original background with -1 temporarily
-        new_target[target == 0] = 1
-        new_target[target == 1] = 2
-        new_target[new_target == -1] = 0
-        return new_target
-
     def forward(self, logits, target, depth_pred, depth_true):
         device = logits.device
         target = target.to(device)
         depth_true = depth_true.to(device)
 
-        if self.remap_target:
-            target = self._remap_target(target)
-
-        # Ensure logits match target spatial dimensions
+        # Ensure logits match target shape
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
@@ -117,20 +106,17 @@ class CombinedLoss(nn.Module):
         seg_loss_dice = self.dice_loss(logits, target)
         seg_loss_total = seg_loss_ce + seg_loss_dice
 
-
-
-        # Process depth prediction (if used)
+        # Process depth (if used)
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
             depth_true = depth_true.squeeze(1)
         if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
+            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
+                                       align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
 
-        total_loss = self.seg_loss_weight * seg_loss_total + self.depth_loss_weight * depth_loss_val
-        return total_loss
-
+        return self.seg_loss_weight * seg_loss_total + self.depth_loss_weight * depth_loss_val
 
 def visualize_sample(data_loader, num_samples=1):
     """
@@ -203,8 +189,13 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
     logger = tb.SummaryWriter(log_dir)
 
     model = load_model(model_name, **kwargs).to(device)
-    loss_func = CombinedLoss(device=device, total_epochs=num_epoch, use_focal_loss=True,
-                             seg_loss_weight=1.0, depth_loss_weight=0.0, remap_target=False)
+    loss_func = CombinedLoss(
+        device=device,
+        total_epochs=num_epoch,
+        use_focal_loss=True,
+        seg_loss_weight=1.0,
+        depth_loss_weight=0.0
+    )
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     scheduler = warmup_scheduler(optimizer)
