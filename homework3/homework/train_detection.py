@@ -55,7 +55,7 @@ class DiceLoss(nn.Module):
 
 class CombinedLoss(nn.Module):
     def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
-                 seg_loss_weight=1.0, depth_loss_weight=0.0):
+                 seg_loss_weight=1.0, depth_loss_weight=0.0, remap_target=False):
         """
         Combined loss for segmentation and depth.
         Here, depth_loss_weight is set to 0 to focus on segmentation.
@@ -67,10 +67,11 @@ class CombinedLoss(nn.Module):
         self.use_focal_loss = use_focal_loss
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
+        self.remap_target = remap_target
 
         # Updated class weights: background has low weight; lane boundaries & other small classes higher.
         # self.class_weights = torch.tensor([0.1, 4.0, 5.0], dtype=torch.float32)
-        self.register_buffer("class_weights", torch.tensor([0.1, 4.0, 5.0], dtype=torch.float32))
+        self.register_buffer("class_weights", torch.tensor([0.1, 10.0, 10.0], dtype=torch.float32))
         if device is not None:
             self.class_weights = self.class_weights.to(device)
         if self.use_focal_loss:
@@ -86,10 +87,24 @@ class CombinedLoss(nn.Module):
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
+    def _remap_target(self, target):
+        # Remap targets as described:
+        # original 2 -> new 0; original 0 -> new 1; original 1 -> new 2.
+        # Create a copy to avoid in-place modifications.
+        new_target = target.clone()
+        new_target[target == 2] = -1  # mark original background with -1 temporarily
+        new_target[target == 0] = 1
+        new_target[target == 1] = 2
+        new_target[new_target == -1] = 0
+        return new_target
+
     def forward(self, logits, target, depth_pred, depth_true):
         device = logits.device
         target = target.to(device)
         depth_true = depth_true.to(device)
+
+        if self.remap_target:
+            target = self._remap_target(target)
 
         # Ensure logits match target spatial dimensions
         if logits.shape[2:] != target.shape[1:]:
@@ -98,6 +113,8 @@ class CombinedLoss(nn.Module):
         seg_loss_ce = self.seg_loss(logits, target)
         seg_loss_dice = self.dice_loss(logits, target)
         seg_loss_total = seg_loss_ce + seg_loss_dice
+
+
 
         # Process depth prediction (if used)
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
@@ -146,7 +163,9 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
     logger = tb.SummaryWriter(log_dir)
 
     model = load_model(model_name, **kwargs).to(device)
-    loss_func = CombinedLoss(device=device, total_epochs=num_epoch)
+    loss_func = CombinedLoss(device=device, total_epochs=num_epoch, use_focal_loss=True,
+                             seg_loss_weight=1.0, depth_loss_weight=0.0, remap_target=True)
+
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     scheduler = warmup_scheduler(optimizer)
 
