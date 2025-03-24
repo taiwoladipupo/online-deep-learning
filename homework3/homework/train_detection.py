@@ -24,8 +24,9 @@ class CombinedLoss(nn.Module):
         class_weights = torch.log(1 / (frequency + 1e-6))
         class_weights = class_weights / class_weights.sum() * len(class_weights)
         self.class_weights = class_weights.to(device)
+        alpha = torch.tensor([0.1,4.0,6.0], device=device)
 
-        self.seg_loss = FocalLoss(alpha=[0.1, 5.0, 6.0], gamma=2.0)
+        self.seg_loss = FocalLoss(alpha=alpha)
         self.depth_loss = nn.L1Loss()
 
         self.dice_loss = DiceLoss()
@@ -53,7 +54,7 @@ class CombinedLoss(nn.Module):
 
         # Suppression for background
         suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression * 1.5
+        logits[:, 0, :, :] -= suppression * 2.0
 
         # Encourage foreground
         boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
@@ -70,29 +71,23 @@ class CombinedLoss(nn.Module):
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.7 * seg_loss + 0.3 * dice + depth_weight * depth
+        total = 0.6 * seg_loss + 0.3 * dice + 0.1 * depth
 
         return total
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, gamma=2.0, alpha=None):
+    def __init__(self, alpha=None, gamma=2.0):
         super().__init__()
-        self.gamma = gamma
         self.alpha = alpha
+        self.gamma = gamma
 
-    def forward(self, inputs, targets):
-        log_probs = F.log_softmax(inputs, dim=1)
-        probs = torch.exp(log_probs)
-        ce_loss = F.nll_loss(log_probs, targets, reduction='none')
+    def forward(self, logits, target):
+        logpt = -F.cross_entropy(logits, target, weight=self.alpha, reduction='none')
+        pt = torch.exp(logpt)
+        focal_loss = -((1 - pt) ** self.gamma) * logpt
+        return focal_loss.mean()
 
-        if self.alpha is not None:
-            alpha = torch.tensor(self.alpha, device=inputs.device)[targets]
-            ce_loss *= alpha
-
-        focal = (1 - probs.gather(1, targets.unsqueeze(1)).squeeze(1)) ** self.gamma
-        loss = focal * ce_loss
-        return loss.mean()
 
 
 class DiceLoss(nn.Module):
@@ -171,7 +166,7 @@ def train(
             img = batch['image'].to(device)
             label = batch['track'].to(device)
             depth_true = batch['depth'].to(device)
-            print("Unique target labels in batch:", torch.unique(label))
+            # print("Unique target labels in batch:", torch.unique(label))
 
             unique, counts = torch.unique(label, return_counts=True)
             for u, c in zip(unique.tolist(), counts.tolist()):
