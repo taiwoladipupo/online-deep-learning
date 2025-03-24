@@ -127,20 +127,18 @@ class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
         Detector model using MobileNetV3-Small as the encoder.
-        Assumes input images are (B, 3, 192, 256).
+        Assumes input images are (B, 3, 192, 256) with values in [0, 1].
         Outputs:
          - Segmentation logits: (B, num_classes, 96, 128)
          - Depth map: (B, 96, 128)
         """
         super(Detector, self).__init__()
-        # Load MobileNetV3-Small pretrained on ImageNet
         mobilenet = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
-        self.encoder = mobilenet.features
-        # For an input of (192,256), the encoder output is roughly (B, 576, 6, 8)
+        self.encoder = mobilenet.features  # Expected output: (B,576, ~6, ~8) for input (192,256)
 
         # Decoder: Upsample gradually from (B,576,6,8) to (B,16,96,128)
         self.decoder = nn.Sequential(
-            nn.Conv2d(576, 128, kernel_size=3, padding=1),  # (B,128,6,8)
+            nn.Conv2d(576, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,128,12,16)
@@ -161,16 +159,13 @@ class Detector(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-        # Segmentation head: outputs logits for 3 classes.
         self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)
-        # Depth head: outputs a single-channel depth map.
         self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
 
     def forward(self, x):
-        # x: (B, 3, 192, 256)
-        features = self.encoder(x)  # (B,576, approx 6,8)
+        features = self.encoder(x)  # (B,576,~6,~8)
         up = self.decoder(features)  # (B,16,96,128)
-        seg_logits = self.seg_head(up)  # (B, num_classes, 96, 128)
+        seg_logits = self.seg_head(up)  # (B,num_classes,96,128)
         depth = self.depth_head(up)  # (B,1,96,128)
         depth = depth.squeeze(1)  # (B,96,128)
         return seg_logits, depth
@@ -178,22 +173,16 @@ class Detector(nn.Module):
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Used for inference, takes an image and returns class labels and normalized depth.
-        This is what the metrics use as input (this is what the grader will use!).
-
         Args:
-            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
-
+            x (torch.FloatTensor): image with shape (B, 3, h, w) and values in [0, 1]
         Returns:
-            tuple of (torch.LongTensor, torch.FloatTensor):
-                - pred: class labels {0, 1, 2} with shape (b, h, w)
-                - depth: normalized depth [0, 1] with shape (b, h, w)
+            tuple (pred, depth):
+              - pred: class labels {0, 1, 2} with shape (B, h, w)
+              - depth: normalized depth [0, 1] with shape (B, h, w)
         """
         logits, raw_depth = self(x)
         pred = logits.argmax(dim=1)
-
-        # Optional additional post-processing for depth only if needed
-        depth = raw_depth
-
+        depth = raw_depth  # Optionally add post-processing here.
         return pred, depth
 
 MODEL_FACTORY = {

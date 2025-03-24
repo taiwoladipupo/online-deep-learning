@@ -75,33 +75,50 @@ class TverskyLoss(nn.Module):
         return loss
 
 
-class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
-                 seg_loss_weight=1.0, depth_loss_weight=0.0):
+class FocalTverskyLoss(nn.Module):
+    def __init__(self, alpha=0.3, beta=0.7, gamma=1.33, smooth=1e-6):
         """
-        Combined loss for segmentation (focal + dice) and optional depth regression.
+        Focal Tversky Loss for segmentation.
+        This loss focuses on hard examples and balances false positives and false negatives.
+        """
+        super(FocalTverskyLoss, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.smooth = smooth
 
-        Here, we assume:
-         - Label 0 is background (dominant)
-         - Labels 1 and 2 are rare classes (lane boundaries)
-        We set class weights to [0.1, 10.0, 10.0], so background is penalized less
-        and rare classes are penalized more.
+    def forward(self, logits, target):
+        num_classes = logits.shape[1]
+        probs = torch.softmax(logits, dim=1)
+        target_one_hot = F.one_hot(target, num_classes=num_classes).permute(0, 3, 1, 2).float()
+        dims = (2, 3)
+        TP = (probs * target_one_hot).sum(dim=dims)
+        FP = (probs * (1 - target_one_hot)).sum(dim=dims)
+        FN = ((1 - probs) * target_one_hot).sum(dim=dims)
+        tversky_index = (TP + self.smooth) / (TP + self.alpha * FN + self.beta * FP + self.smooth)
+        focal_tversky = (1 - tversky_index) ** self.gamma
+        return focal_tversky.mean()
+
+
+class CombinedLoss(nn.Module):
+    def __init__(self, device=None, total_epochs=25, seg_loss_weight=1.0, depth_loss_weight=0.0):
+        """
+        Combined loss for segmentation and optional depth regression.
+        Uses Focal Tversky Loss for segmentation.
+        Assumes:
+          - Background: label 0 (dominant)
+          - Rare classes: labels 1 and 2 (lane boundaries)
+        You can adjust hyperparameters and also add a weighted cross-entropy term if desired.
         """
         super().__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
-        self.use_focal_loss = use_focal_loss
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
-        # Set class weights: background=0.1, classes 1 & 2=20.0
-        self.register_buffer("class_weights", torch.tensor([1.0, 5.0, 5.0], dtype=torch.float32))
-        if device is not None:
-            self.class_weights = self.class_weights.to(device)
-        if self.use_focal_loss:
-            self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=1.0)
-        else:
-            self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
-        self.tversky_loss = TverskyLoss(alpha=0.3, beta=0.7)
+
+        # Optionally, you could register class weights and use them in a combined loss.
+        # For now, we use Focal Tversky Loss which focuses on overlap quality.
+        self.seg_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.33)
         self.depth_loss = nn.L1Loss()
         if device:
             self.to(device)
@@ -115,9 +132,7 @@ class CombinedLoss(nn.Module):
         depth_true = depth_true.to(device)
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
-        seg_loss_ce = self.seg_loss(logits, target)
-        seg_loss_tv = self.tversky_loss(logits, target)
-        seg_loss_total = seg_loss_ce + seg_loss_tv
+        seg_loss_val = self.seg_loss(logits, target)
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
@@ -126,8 +141,7 @@ class CombinedLoss(nn.Module):
             depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                        align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
-        return self.seg_loss_weight * seg_loss_total + self.depth_loss_weight * depth_loss_val
-
+        return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 def visualize_sample(data_loader, num_samples=1):
     """
@@ -189,6 +203,8 @@ def warmup_scheduler(optimizer, warmup_epochs=3):
     def lr_lambda(epoch):
         return float(epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
 
 def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
