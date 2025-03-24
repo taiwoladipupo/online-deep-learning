@@ -196,36 +196,31 @@ class Detector(torch.nn.Module):
         z = self.channel_dropout(z)
         # Down sampling to reduce spatial dimensions
         # Down
-        d1 = self.down1(z)  # (B, 16, H/2, W/2)
-        d2 = self.down2(d1) # (B, 32, H/4, W/4)
-        d3 = self.down3(d2) # (B, 64, H/8, W/8)
-        d4 = self.down4(d3) # (B, 128, H/16, W/16)
+        d1 = self.down1(z)
+        d2 = self.down2(d1)
+        d3 = self.down3(d2)
+        d4 = self.down4(d3)
 
-        # Up with skip connections
+        # Upsampling with skip connections and fixing interpolation size
         u1 = self.up1(d4)
         if u1.shape[-2:] != d3.shape[-2:]:
-            d3 = F.interpolate(d3, size= u1.shape[-2:], mode='bilinear', align_corners=False)   # -> (B, 64, H/8, W/8)
-        u1 = torch.cat([u1, d3], dim=1)  # concat skip -> (B, 128, H/8, W/8)
+            d3 = F.interpolate(d3, size=u1.shape[-2:], mode='bilinear', align_corners=False)
+        u1 = torch.cat([u1, d3], dim=1)
 
         u2 = self.up2(u1)
         if u2.shape[-2:] != d2.shape[-2:]:
             d2 = F.interpolate(d2, size=u2.shape[-2:], mode='bilinear', align_corners=False)
-            # -> (B, 32, H/4, W/4)
-        u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, H/4, W/4)
+        u2 = torch.cat([u2, d2], dim=1)
 
         u3 = self.up3(u2)
         if u3.shape[-2:] != d1.shape[-2:]:
             d1 = F.interpolate(d1, size=u3.shape[-2:], mode='bilinear', align_corners=False)
-            # -> (B, 16, H/2, W/2)
-        u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, H/2, W/2)
+        u3 = torch.cat([u3, d1], dim=1)
 
-        u4 = self.up4(u3)                # -> (B, 8, H, W)
+        u4 = self.up4(u3)
 
-        logits = self.logits(u4)
-        logits = F.interpolate(logits, size=x.shape[-2:], mode='bilinear', align_corners=False)
-
-        raw_depth = self.depth(u4).squeeze(1)  # output (B, H, W)
-        raw_depth = F.interpolate(raw_depth.unsqueeze(1), size=x.shape[-2:], mode='bilinear', align_corners=False)
+        logits = self.logits(u4)  # (B, num_classes, H, W)
+        raw_depth = self.depth(u4).squeeze(1)  # (B, H, W)
 
         return logits, raw_depth
 

@@ -13,49 +13,57 @@ from .datasets.road_dataset import load_data
 from .metrics import ConfusionMatrix
 
 class CombinedLoss(nn.Module):
-    def __init__(self, device=None):
+    def __init__(self, device=None, total_epochs=25):
         super().__init__()
-        self.device = device if device else torch.device("cpu")
+        self.total_epochs = total_epochs
+        self.current_epoch = 0
 
-        # Default class weights
         counts = torch.tensor([0.001, 2.0, 3.0], dtype=torch.float32)
         frequency = counts / counts.sum()
-        base_weights = torch.log(1 / (frequency + 1e-6))
-        base_weights = base_weights / base_weights.sum() * len(base_weights)
-        self.base_weights = base_weights.to(self.device)
+        class_weights = torch.log(1 / (frequency + 1e-6))
+        class_weights = class_weights / class_weights.sum() * len(class_weights)
+        self.class_weights = class_weights.to(device)
 
-        self.seg_loss = nn.CrossEntropyLoss(weight=self.base_weights)
+        self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
         self.depth_loss = nn.L1Loss()
         self.tversky_loss = TverskyLoss()
+        self.dice_loss = DiceLoss()
         self.depth_weight = 0.05
-
-        self.current_epoch = 0
-        self.total_epochs = 25
 
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
-        if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
-            depth_pred = depth_pred.squeeze(1)
-        # Suppression/boost logic
+        # Suppression for background
         suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
-        logits[:, 0] -= suppression
+        logits[:, 0, :, :] -= suppression
+
+        # Encourage foreground
         boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
-        logits[:, 1] += boost * 1.2
-        logits[:, 2] += boost * 1.0
+        logits[:, 1, :, :] += boost
+        logits[:, 2, :, :] += boost
 
-        # Dynamic weights
-        dynamic_weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
-        dynamic_weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
-        seg_loss_fn = nn.CrossEntropyLoss(weight=dynamic_weights)
+        seg_loss = self.seg_loss(logits, target)
+        dice = self.dice_loss(logits, target)
+        depth = self.depth_loss(depth_pred, depth_true)
 
-        segmentation_loss = seg_loss_fn(logits, target)
-        depth_loss = self.depth_loss(depth_pred, depth_true)
-        tversky = self.tversky_loss(logits, target)
+        return seg_loss + 0.7 * dice + self.depth_weight * depth
 
-        return segmentation_loss + self.depth_weight * tversky * depth_loss
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=1e-6):
+        super(DiceLoss, self).__init__()
+        self.smooth = smooth
 
+    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
+        probs = torch.softmax(logits, dim=1)
+        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
+        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
+
+        intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
+        union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
+
+        dice = (2. * intersection + self.smooth) / (union + self.smooth)
+        return 1 - dice.mean()
 
 class TverskyLoss(nn.Module):
     def __init__(self, alpha=0.7, beta=0.3, smooth=1e-6):
