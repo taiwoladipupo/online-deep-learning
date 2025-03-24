@@ -121,19 +121,8 @@ class ConvBlock(nn.Module):
         return self.block(x)
 
 
-class Detector(torch.nn.Module):
-    def __init__(
-        self,
-        in_channels: int = 3,
-        num_classes: int = 3,
-    ):
-        """
-        A single model that performs segmentation and depth regression
-
-        Args:
-            in_channels: int, number of input channels
-            num_classes: int
-        """
+class Detector(nn.Module):
+    def __init__(self, in_channels=3, num_classes=3):
         super().__init__()
 
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
@@ -141,13 +130,19 @@ class Detector(torch.nn.Module):
 
         self.channel_dropout = RandomChannelDropout()
 
-        self.down1 = ConvBlock(in_channels, 16)
+        # Encoder
+        self.down1 = ConvBlock(in_channels, 16)  # 96x128 → 96x128
+        self.pool1 = nn.MaxPool2d(2)              # 96x128 → 48x64
+
         self.down2 = ConvBlock(16, 32)
+        self.pool2 = nn.MaxPool2d(2)              # 48x64 → 24x32
+
         self.down3 = ConvBlock(32, 64)
-        self.down4 = ConvBlock(64, 128)
+        self.pool3 = nn.MaxPool2d(2)              # 24x32 → 12x16
 
-        self.pool = nn.MaxPool2d(2)
+        self.bottom = ConvBlock(64, 128)          # 12x16
 
+        # Decoder
         self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
         self.conv1 = ConvBlock(128, 64)
 
@@ -157,101 +152,51 @@ class Detector(torch.nn.Module):
         self.up3 = nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2)
         self.conv3 = ConvBlock(32, 16)
 
-
+        # Heads
         self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
         self.depth_head = nn.Sequential(
-            nn.Conv2d(16, num_classes, kernel_size=1),
+            nn.Conv2d(16, 1, kernel_size=1),
             nn.Sigmoid()
-
         )
-        #
-        # self.down1 = nn.Sequential(
-        #     nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        # )  # 96x128 → 48x64
-        # self.down2 = nn.Sequential(
-        #     nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        # )  # 48x64 → 24x32
-        # self.down3 = nn.Sequential(
-        #     nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        # )  # 24x32 → 12x16
-        # self.down4 = nn.Sequential(
-        #     nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU()
-        # )  # 12x16 → 6x8
-        #
-        # # Upsampling path
-        # self.up1 = nn.Sequential(
-        #     nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
-        #     nn.ReLU()
-        # )  # 6x8 → 12x16
-        # self.up2 = nn.Sequential(
-        #     nn.ConvTranspose2d(128, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
-        #     nn.ReLU()
-        # )  # 12x16 → 24x32
-        # self.up3 = nn.Sequential(
-        #     nn.ConvTranspose2d(64, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
-        #     nn.ReLU()
-        # )  # 24x32 → 48x64
-        # self.up4 = nn.Sequential(
-        #     nn.ConvTranspose2d(32, 8, kernel_size=3, stride=2, padding=1, output_padding=1),
-        #     nn.ReLU()
-        # )  # 48x64 → 96x128
-        #
-        # self.logits = nn.Conv2d(8, num_classes, kernel_size=1)
-        # self.depth = nn.Sequential(nn.Conv2d(8, 1, kernel_size=1), nn.Sigmoid())
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Used in training, takes an image and returns raw logits and raw depth.
-        This is what the loss functions use as input.
 
-        Args:
-            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
+    def forward(self, x: torch.Tensor):
+        x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
+        x = self.channel_dropout(x)
 
-        Returns:
-            tuple of (torch.FloatTensor, torch.FloatTensor):
-                - logits (b, num_classes, h, w)
-                - depth (b, h, w)
-        """
-        x = x.float()
-        z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-        z = self.channel_dropout(z)
+        # Encoder
+        d1 = self.down1(x)        # (B, 16, 96, 128)
+        p1 = self.pool1(d1)
 
-        # Downsampling
-        d1 = self.down1(z)  # (B, 16, 48, 64)
-        d2 = self.down2(d1)  # (B, 32, 24, 32)
-        d3 = self.down3(d2)  # (B, 64, 12, 16)
-        d4 = self.down4(d3)  # (B, 128, 6, 8)
+        d2 = self.down2(p1)       # (B, 32, 48, 64)
+        p2 = self.pool2(d2)
 
-        u1 = self.up1(d4)  # (B, 64, 12, 16)
-        u1 = torch.cat([u1, d3], dim=1)  # -> (B, 128, 12, 16)
+        d3 = self.down3(p2)       # (B, 64, 24, 32)
+        p3 = self.pool3(d3)
+
+        b = self.bottom(p3)       # (B, 128, 12, 16)
+
+        # Decoder with skip connections
+        u1 = self.up1(b)                       # (B, 64, 24, 32)
+        u1 = F.interpolate(u1, size=d3.shape[-2:], mode='bilinear', align_corners=False)
+        u1 = torch.cat([u1, d3], dim=1)
         u1 = self.conv1(u1)
 
-        u2 = self.up2(u1)  # (B, 64, 12, 16)
-        u2 = torch.cat([u2, d2], dim=1)  # -> (B, 128, 12, 16)
+        u2 = self.up2(u1)                      # (B, 32, 48, 64)
+        u2 = F.interpolate(u2, size=d2.shape[-2:], mode='bilinear', align_corners=False)
+        u2 = torch.cat([u2, d2], dim=1)
         u2 = self.conv2(u2)
 
-        u3 = self.up3(u2)
-        u3 = torch.cat([u3, d1], dim=1)  # -> (B, 128, 12, 16)
+        u3 = self.up3(u2)                      # (B, 16, 96, 128)
+        u3 = F.interpolate(u3, size=d1.shape[-2:], mode='bilinear', align_corners=False)
+        u3 = torch.cat([u3, d1], dim=1)
         u3 = self.conv3(u3)
 
-        # Upsampling + skip connections
-        # u1 = self.up1(d4)  # (B, 64, 12, 16)
-        if u1.shape[-2:] != d3.shape[-2:]:
-            d3 = F.interpolate(d3, size=u1.shape[-2:], mode='bilinear', align_corners=False)
-        u1 = torch.cat([u1, d3], dim=1)  # -> (B, 128, 12, 16)
+        # Outputs
+        logits = self.segmentation_head(u3)    # (B, 3, H, W)
+        raw_depth = self.depth_head(u3).squeeze(1)  # (B, H, W)
 
-        if u2.shape[-2:] != d2.shape[-2:]:
-            d2 = F.interpolate(d2, size=u2.shape[-2:], mode='bilinear', align_corners=False)
-        u2 = torch.cat([u2, d2], dim=1)  # -> (B, 64, 24, 32)
-
-        if u3.shape[-2:] != d1.shape[-2:]:
-            d1 = F.interpolate(d1, size=u3.shape[-2:], mode='bilinear', align_corners=False)
-        u3 = torch.cat([u3, d1], dim=1)  # -> (B, 32, 48, 64)
-        #
-        # u4 = self.up4(u3)  # (B, 8, 96, 128)
-
-        logits = self.segmentation_head(u3) # (B, 3, 96, 128)
-        raw_depth = self.depth(u3).squeeze(1)  # (B, 96, 128)
         return logits, raw_depth
+
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
