@@ -65,13 +65,8 @@ class CombinedLoss(nn.Module):
         self.total_epochs = total_epochs
         self.current_epoch = 0
 
-        counts = torch.tensor([0.1, 2.0, 3.0], dtype=torch.float32)
-        frequency = counts / counts.sum()
-        class_weights = torch.log(1 / (frequency + 1e-6))
-        class_weights = class_weights / class_weights.sum() * len(class_weights)
-        self.class_weights = class_weights.to(device)
-
-        self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=2.0)
+        class_weights = torch.tensor([0.05, 1.0, 1.5], dtype=torch.float32)
+        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device), ignore_index=255)
         self.dice_loss = DiceLoss()
         self.depth_loss = nn.L1Loss()
         self.depth_weight = 0.05
@@ -83,41 +78,26 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
-        assert logits.ndim == 4 and logits.shape[1] == 3, f"Expected shape (B, 3, H, W), got {logits.shape}"
-        assert target.ndim == 3, f"Expected shape (B, H, W), got {target.shape}"
-
-        if depth_pred.ndim == 3:
-            depth_true = depth_true.squeeze(1)
-
-        if self.current_epoch < 5:
-            target_mask = (target != 0)
-            if target_mask.sum() > 0:
-                seg_loss = self.seg_loss(logits[:, 1:], target.clamp(min=1))
-            else:
-                seg_loss = self.seg_loss(logits, target)
-        else:
-            seg_loss = self.seg_loss(logits, target)
-
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
-        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
 
-        # Suppression for background
-        suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs) * 2)
-        logits[:, 0, :, :] -= suppression * 10.0
+        if depth_true.ndim == 3:
+            depth_true = depth_true.unsqueeze(1)
 
-        # Encourage foreground
-        boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] += boost * 12.0
-        logits[:, 2, :, :] += boost * 12.0
+        # Suppress class 0 in early epochs using ignore_index
+        if self.current_epoch < 5:
+            target_masked = target.clone()
+            target_masked[target_masked == 0] = 255  # ignore class 0
+            ce = self.ce_loss(logits, target_masked)
+        else:
+            ce = self.ce_loss(logits, target)
 
-        # seg_loss = self.seg_loss(logits, target)
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.7 * seg_loss + 0.35 * dice + self.depth_weight * depth
+        total_loss = 0.7 * ce + 0.3 * dice + self.depth_weight * depth
+        return total_loss
 
-        return total
 
 def match_shape(pred, target):
     if pred.shape[2:] != target.shape[1:]:
