@@ -59,7 +59,7 @@ class DiceLoss(nn.Module):
 
         intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
         union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
-        print("target min:", target.min(), "max:", target.max())
+        # print("target min:", target.min(), "max:", target.max())
 
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
@@ -186,8 +186,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             # print("=========================")
 
             logits, depth_pred = model(img)
-            print("logits shape:", logits.shape)
-            print("label shape:", label.shape)
+            # print("logits shape:", logits.shape)
+            # print("label shape:", label.shape)
             if label.ndim == 4 and label.shape[1] == 1:
                 print("Squeezing label from shape", label.shape)
                 label = label.squeeze(1)

@@ -122,72 +122,67 @@ class ConvBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
+
+
 class Detector(nn.Module):
-    def __init__(self, in_channels=3, num_classes=3):
-        super().__init__()
-        # Encoder
-        self.enc1 = ConvBlock(in_channels, 64)
-        self.enc2 = ConvBlock(64, 128)
-        self.enc3 = ConvBlock(128, 256)
+    def __init__(self, num_classes=3):
+        """
+        Detector model that outputs segmentation logits and depth.
+        Input:  (B, 3, H, W)
+        Outputs: segmentation logits (B, num_classes, H, W)
+                 depth prediction (B, H, W)
+        """
+        super(Detector, self).__init__()
 
-        self.pool = nn.MaxPool2d(2)
-
-        # Decoder
-        self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.dec2 = ConvBlock(256, 128)
-
-        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.dec1 = ConvBlock(128, 64)
-
-        self.up0 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
-        self.dec0 = ConvBlock(32, 32)
-
-        # Segmentation head
-        self.seg_head = nn.Conv2d(32, num_classes, kernel_size=1)
-
-        with torch.no_grad():
-            self.seg_head.bias.data = torch.tensor([-3.0, 1.0, 1.0])
-
-        # Depth head
-        self.depth_head = nn.Sequential(
-            nn.Conv2d(32, 1, kernel_size=1),
-            nn.Sigmoid()
+        # Downsampling block 1: reduces spatial dims by 2: (H, W) -> (H/2, W/2)
+        self.down1 = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),  # (B,16, H/2, W/2)
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True)
         )
-
-        self._init_bias()
-
-    def _init_bias(self):
-        # Optional: bias init to suppress overconfident background early
-        # You can adjust these based on actual class stats
-        class_probs = torch.tensor([0.94, 0.03, 0.03])  # adjust if needed
-        class_weights = torch.log(class_probs + 1e-6)
-        bias = -class_weights + class_weights.mean()
-        with torch.no_grad():
-            self.seg_head.bias.copy_(bias)
+        # Downsampling block 2: further reduces dims by 2: (H/2, W/2) -> (H/4, W/4)
+        self.down2 = nn.Sequential(
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),  # (B,32, H/4, W/4)
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True)
+        )
+        # Upsampling block 1: upsample from (H/4, W/4) to (H/2, W/2)
+        self.up1 = nn.Sequential(
+            nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2),  # (B,16, H/2, W/2)
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True)
+        )
+        # Combine with skip connection from down1 (both now at H/2, W/2).
+        # After concatenation: 16 (from up1) + 16 (from down1) = 32 channels.
+        self.conv_up1 = nn.Sequential(
+            nn.Conv2d(32, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True)
+        )
+        # Upsampling block 2: upsample from (H/2, W/2) to original (H, W)
+        self.up2 = nn.Sequential(
+            nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2),  # (B,16, H, W)
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True)
+        )
+        # Segmentation head: output logits for each class (no activation)
+        self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)  # (B, num_classes, H, W)
+        # Depth head: output single-channel depth
+        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)  # (B,1,H,W)
 
     def forward(self, x):
-        # Encoder
-        x = x.float()
-        e1 = self.enc1(x)
-        e2 = self.enc2(self.pool(e1))
-        e3 = self.enc3(self.pool(e2))
-
-        # Decoder
-        d2 = self.up2(e3)
-        d2 = self.dec2(torch.cat([d2, e2], dim=1))
-
-        d1 = self.up1(d2)
-        d1 = self.dec1(torch.cat([d1, e1], dim=1))
-
-        d0 = self.up0(d1)
-        d0 = self.dec0(d0)
-
-        seg_logits = self.seg_head(d0)
-        depth = self.depth_head(d0)
-
-        return seg_logits, depth
-
-
+        # x shape: (B, 3, H, W)
+        d1 = self.down1(x)  # -> (B,16, H/2, W/2)
+        d2 = self.down2(d1)  # -> (B,32, H/4, W/4)
+        u1 = self.up1(d2)  # -> (B,16, H/2, W/2)
+        # Skip connection: concatenate along the channel dimension
+        u1_cat = torch.cat([u1, d1], dim=1)  # -> (B, 32, H/2, W/2)
+        u1_out = self.conv_up1(u1_cat)  # -> (B,16, H/2, W/2)
+        u2 = self.up2(u1_out)  # -> (B,16, H, W)
+        logits = self.seg_head(u2)  # -> (B, num_classes, H, W)
+        depth = self.depth_head(u2)  # -> (B,1, H, W)
+        depth = depth.squeeze(1)  # -> (B, H, W)
+        return logits, depth
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
