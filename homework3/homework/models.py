@@ -9,73 +9,57 @@ INPUT_MEAN = [0.2788, 0.2657, 0.2629]
 INPUT_STD = [0.2064, 0.1944, 0.2252]
 
 
-class Classifier(nn.Module):
-    def __init__(
-        self,
-        in_channels: int = 3,
-        num_classes: int = 6,
-    ):
+class Detector(nn.Module):
+    def __init__(self, num_classes=3):
         """
-        A convolutional network for image classification.
-
-        Args:
-            in_channels: int, number of input channels
-            num_classes: int
+        Detector model using MobileNetV3-Small as the encoder.
+        Assumes input images are (B, 3, 192, 256).
+        Outputs:
+         - Segmentation logits: (B, num_classes, 96, 128)
+         - Depth map: (B, 96, 128)
         """
-        super().__init__()
+        super(Detector, self).__init__()
+        # Load MobileNetV3-Small pretrained on ImageNet
+        mobilenet = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
+        self.encoder = mobilenet.features
+        # For an input of (192,256), the encoder output is roughly (B, 576, 6, 8)
 
-        self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
-        self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
+        # Decoder: Upsample gradually from (B,576,6,8) to (B,16,96,128)
+        self.decoder = nn.Sequential(
+            nn.Conv2d(576, 128, kernel_size=3, padding=1),  # (B,128,6,8)
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,128,12,16)
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,64,24,32)
+            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,32,48,64)
+            nn.Conv2d(32, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,16,96,128)
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True)
+        )
 
+        # Segmentation head: outputs logits for 3 classes.
+        self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)
+        # Depth head: outputs a single-channel depth map.
+        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
 
-        # Convolutional layers first block
-        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1)
-        self.batch1 = nn.BatchNorm2d(64)
-
-        # Second block
-        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
-        self.batch2 = nn.BatchNorm2d(128)
-
-        # Third block
-        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)
-        self.batch3 = nn.BatchNorm2d(256)
-
-        # Final block
-        self.conv4 = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
-
-        # Adding Activation and max pooling layers
-        self.relu = nn.ReLU()
-        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout = nn.Dropout(0.3) # To reduce overfitting
-
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: tensor (b, 3, h, w) image
-
-        Returns:
-            tensor (b, num_classes) logits
-        """
-        # optional: normalizes the input
-        z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-        # First convolutional block
-        z = self.maxPool(self.relu(self.batch1(self.conv1(z))))
-
-        # Second convolutional block
-        z = self.maxPool(self.relu(self.batch2(self.conv2(z))))
-
-        # third convolutional block
-        z = self.maxPool(self.relu(self.batch3(self.conv3(z))))
-
-        # We then apply global average pooling to reduce spatial dimensions to 1x1
-        z = self.global_pool(z)
-        z =self.dropout(z)
-
-        # TODO: replace with actual forward pass
-        # Apply the final convolutional layer
-        logits = self.conv4(z).squeeze(-1).squeeze(-1)
+    def forward(self, x):
+        # x: (B, 3, 192, 256)
+        features = self.encoder(x)  # (B,576, approx 6,8)
+        up = self.decoder(features)  # (B,16,96,128)
+        seg_logits = self.seg_head(up)  # (B, num_classes, 96, 128)
+        depth = self.depth_head(up)  # (B,1,96,128)
+        depth = depth.squeeze(1)  # (B,96,128)
+        return seg_logits, depth
 
         return logits
 
