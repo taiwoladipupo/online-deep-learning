@@ -43,7 +43,8 @@ class CombinedLoss(nn.Module):
 
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
-        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true == depth_true.squeeze(1)
+        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
+
         # Suppression for background
         suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs) * 2)
         logits[:, 0, :, :] -= suppression * 0.5
@@ -58,12 +59,11 @@ class CombinedLoss(nn.Module):
         weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
         seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
 
-        seg_loss = seg_loss_fn(logits, target)# using dynamic CE
+        seg_loss = seg_loss_fn(logits, target) # using dynamic CE
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
         total = 0.65 * seg_loss + 0.35 * dice + self.depth_weight * depth
-
 
         return total
 
@@ -83,8 +83,7 @@ class DiceLoss(nn.Module):
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
 
-
-def warmup_schedulerr(optimizer, warmup_epochs=3):
+def warmup_scheduler(optimizer, warmup_epochs=3):
     def lr_lambda(epoch):
         if epoch < warmup_epochs:
             return float(epoch + 1) / warmup_epochs
@@ -125,7 +124,7 @@ def train(
 
     loss_func = CombinedLoss(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    scheduler = warmup_schedulerr(optimizer)
+    scheduler = warmup_scheduler(optimizer)
 
     global_step = 0
     metrics = {"train_acc": [], "val_acc": []}
@@ -207,7 +206,6 @@ def train(
 
         print("miou:", miou["iou"])
         print("mean_depth_mae:", mean_depth_mae)
-
 
         if hasattr(confusion_matrix, "matrix"):
             matrix = confusion_matrix.matrix
