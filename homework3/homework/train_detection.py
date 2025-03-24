@@ -12,6 +12,10 @@ from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 from torch.optim.lr_scheduler import _LRScheduler
 
+import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
+
 class FocalLoss(nn.Module):
     def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
         super(FocalLoss, self).__init__()
@@ -39,14 +43,17 @@ class DiceLoss(nn.Module):
     def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
         probs = torch.softmax(logits, dim=1)
 
+        # Move to CPU before printing to avoid CUDA error
         target_cpu = target.detach().cpu()
 
         print("=== Debug DiceLoss ===")
         print("logits shape:", logits.shape)
         print("target shape:", target.shape)
-        print("target min:", target.min().item(), "target max:", target.max().item())
+        print("target min:", target_cpu.min().item(), "target max:", target_cpu.max().item())
+        print("unique labels in target:", torch.unique(target_cpu))
         print("num_classes (from probs):", probs.shape[1])
         print("=======================")
+
         target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
         target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
 
