@@ -178,16 +178,20 @@ def train(
 
                 depth_errors.append(torch.abs(depth_pred - depth_true).mean().item())
 
+
+
+
+        miou = confusion_matrix.compute()
+        mean_depth_mae = sum(depth_errors) / len(depth_errors)
+
         best_miou = 0
         best_model = None
         if miou["iou"] > best_miou:
-         best_miou = miou["iou"]
-         best_model = model
+            best_miou = miou["iou"]
+            best_model = model
 
         if best_model:
             torch.save(best_model, log_dir / "best_model.th")
-        miou = confusion_matrix.compute()
-        mean_depth_mae = sum(depth_errors) / len(depth_errors)
 
         print("miou:", miou["iou"])
         print("mean_depth_mae:", mean_depth_mae)
