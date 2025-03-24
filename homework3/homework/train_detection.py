@@ -273,3 +273,4 @@ if __name__ == "__main__":
     parser.add_argument("--transform_pipeline", type=str, default="default")
 
     train(**vars(parser.parse_args()))
+    train(args.exp_dir, args.model_name, args.num_epoch, args.lr, args.seed, args.transform_pipeline)
