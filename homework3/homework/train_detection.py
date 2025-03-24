@@ -174,6 +174,12 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             print("=========================")
 
             logits, depth_pred = model(img)
+            print("logits shape:", logits.shape)
+            print("label shape:", label.shape)
+            if label.ndim == 4 and label.shape[1] == 1:
+                print("Squeezing label from shape", label.shape)
+                label = label.squeeze(1)
+
             loss = loss_func(logits, label, depth_pred, depth_true)
 
             optimizer.zero_grad()
