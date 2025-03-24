@@ -113,10 +113,10 @@ class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
@@ -125,58 +125,64 @@ class ConvBlock(nn.Module):
 class Detector(nn.Module):
     def __init__(self, in_channels=3, num_classes=3):
         super().__init__()
-        self.encoder1 = ConvBlock(in_channels, 64)
-        self.encoder2 = ConvBlock(64, 128)
-        self.encoder3 = ConvBlock(128, 256)
+        # Encoder
+        self.enc1 = ConvBlock(in_channels, 64)
+        self.enc2 = ConvBlock(64, 128)
+        self.enc3 = ConvBlock(128, 256)
 
         self.pool = nn.MaxPool2d(2)
 
-        self.decoder3 = ConvBlock(256, 128)
-        self.decoder2 = ConvBlock(128, 64)
-        self.decoder1 = ConvBlock(64, 32)
+        # Decoder
+        self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.dec2 = ConvBlock(256, 128)
 
-        self.upconv2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        self.upconv1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.upconv0 = nn.ConvTranspose2d(64, 32, 2, stride=2)
+        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.dec1 = ConvBlock(128, 64)
 
-        # Segmentation head (no softmax, raw logits)
-        self.seg_head = nn.Conv2d(32, num_classes, 1)
+        self.up0 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
+        self.dec0 = ConvBlock(32, 32)
+
+        # Segmentation head
+        self.seg_head = nn.Conv2d(32, num_classes, kernel_size=1)
 
         # Depth head
         self.depth_head = nn.Sequential(
-            nn.Conv2d(32, 1, 1),
-            nn.Sigmoid(),  # normalized depth
+            nn.Conv2d(32, 1, kernel_size=1),
+            nn.Sigmoid()
         )
 
         self._init_bias()
 
     def _init_bias(self):
-        # Bias init to counteract class imbalance
-        class_counts = torch.tensor([0.94, 0.03, 0.03])  # adjust as needed
-        class_weights = torch.log(class_counts + 1e-6)
+        # Optional: bias init to suppress overconfident background early
+        # You can adjust these based on actual class stats
+        class_probs = torch.tensor([0.94, 0.03, 0.03])  # adjust if needed
+        class_weights = torch.log(class_probs + 1e-6)
         bias = -class_weights + class_weights.mean()
         with torch.no_grad():
             self.seg_head.bias.copy_(bias)
 
     def forward(self, x):
+        # Encoder
         x = x.float()
-        enc1 = self.encoder1(x)
-        enc2 = self.encoder2(self.pool(enc1))
-        enc3 = self.encoder3(self.pool(enc2))
+        e1 = self.enc1(x)
+        e2 = self.enc2(self.pool(e1))
+        e3 = self.enc3(self.pool(e2))
 
-        dec2 = self.upconv2(enc3)
-        dec2 = self.decoder3(dec2 + enc2)
+        # Decoder
+        d2 = self.up2(e3)
+        d2 = self.dec2(torch.cat([d2, e2], dim=1))
 
-        dec1 = self.upconv1(dec2)
-        dec1 = self.decoder2(dec1 + enc1)
+        d1 = self.up1(d2)
+        d1 = self.dec1(torch.cat([d1, e1], dim=1))
 
-        dec0 = self.upconv0(dec1)
-        dec0 = self.decoder1(dec0)
+        d0 = self.up0(d1)
+        d0 = self.dec0(d0)
 
-        seg_logits = self.seg_head(dec0)
-        depth_map = self.depth_head(dec0)
+        seg_logits = self.seg_head(d0)
+        depth = self.depth_head(d0)
 
-        return seg_logits, depth_map
+        return seg_logits, depth
 
 
 
