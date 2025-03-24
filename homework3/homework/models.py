@@ -9,6 +9,120 @@ INPUT_MEAN = [0.2788, 0.2657, 0.2629]
 INPUT_STD = [0.2064, 0.1944, 0.2252]
 
 
+class Classifier(nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 3,
+        num_classes: int = 6,
+    ):
+        """
+        A convolutional network for image classification.
+
+        Args:
+            in_channels: int, number of input channels
+            num_classes: int
+        """
+        super().__init__()
+
+        self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
+        self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
+
+
+        # Convolutional layers first block
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1)
+        self.batch1 = nn.BatchNorm2d(64)
+
+        # Second block
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.batch2 = nn.BatchNorm2d(128)
+
+        # Third block
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)
+        self.batch3 = nn.BatchNorm2d(256)
+
+        # Final block
+        self.conv4 = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
+
+        # Adding Activation and max pooling layers
+        self.relu = nn.ReLU()
+        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(0.3) # To reduce overfitting
+
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: tensor (b, 3, h, w) image
+
+        Returns:
+            tensor (b, num_classes) logits
+        """
+        # optional: normalizes the input
+        z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
+        # First convolutional block
+        z = self.maxPool(self.relu(self.batch1(self.conv1(z))))
+
+        # Second convolutional block
+        z = self.maxPool(self.relu(self.batch2(self.conv2(z))))
+
+        # third convolutional block
+        z = self.maxPool(self.relu(self.batch3(self.conv3(z))))
+
+        # We then apply global average pooling to reduce spatial dimensions to 1x1
+        z = self.global_pool(z)
+        z =self.dropout(z)
+
+        # TODO: replace with actual forward pass
+        # Apply the final convolutional layer
+        logits = self.conv4(z).squeeze(-1).squeeze(-1)
+
+        return logits
+
+    def predict(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Used for inference, returns class labels
+        This is what the AccuracyMetric uses as input (this is what the grader will use!).
+        You should not have to modify this function.
+
+        Args:
+            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
+
+        Returns:
+            pred (torch.LongTensor): class labels {0, 1, ..., 5} with shape (b, h, w)
+        """
+        return self(x).argmax(dim=1)
+
+class RandomChannelDropout(nn.Module):
+    def __init__(self, channels=0.2):
+        super().__init__()
+        self.channels = channels
+
+    def forward(self, x):
+        if not self.training or self.channels <= 0:
+            return x
+
+        keep_prob = torch.rand(x.shape[1], device=x.device) > self.channels
+        mask = keep_prob.float()[None, :, None, None]
+
+        return x * mask
+
+
+
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
 class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
@@ -61,103 +175,26 @@ class Detector(nn.Module):
         depth = depth.squeeze(1)  # (B,96,128)
         return seg_logits, depth
 
-        return logits
-
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
+    def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Used for inference, returns class labels
-        This is what the AccuracyMetric uses as input (this is what the grader will use!).
-        You should not have to modify this function.
+        Used for inference, takes an image and returns class labels and normalized depth.
+        This is what the metrics use as input (this is what the grader will use!).
 
         Args:
             x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
 
         Returns:
-            pred (torch.LongTensor): class labels {0, 1, ..., 5} with shape (b, h, w)
+            tuple of (torch.LongTensor, torch.FloatTensor):
+                - pred: class labels {0, 1, 2} with shape (b, h, w)
+                - depth: normalized depth [0, 1] with shape (b, h, w)
         """
-        return self(x).argmax(dim=1)
+        logits, raw_depth = self(x)
+        pred = logits.argmax(dim=1)
 
-class RandomChannelDropout(nn.Module):
-    def __init__(self, channels=0.2):
-        super().__init__()
-        self.channels = channels
+        # Optional additional post-processing for depth only if needed
+        depth = raw_depth
 
-    def forward(self, x):
-        if not self.training or self.channels <= 0:
-            return x
-
-        keep_prob = torch.rand(x.shape[1], device=x.device) > self.channels
-        mask = keep_prob.float()[None, :, None, None]
-
-        return x * mask
-
-
-
-class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True)
-        )
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class Detector(nn.Module):
-    def __init__(self, num_classes=3):
-        """
-        Detector model using MobileNetV2 as the encoder.
-        Assumes input images are (B, 3, 192, 256).
-        Outputs:
-         - Segmentation logits: (B, num_classes, 96, 128)
-         - Depth map: (B, 96, 128)
-        """
-        super(Detector, self).__init__()
-        # Load pretrained MobileNetV2 and use its feature extractor as encoder.
-        mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1)
-        self.encoder = mobilenet.features  # This produces output of shape (B, 1280, H/32, W/32)
-        # For input (192,256), encoder output will be roughly (B,1280,6,8)
-
-        # Decoder: Upsample gradually from (B,1280,6,8) to (B,32,96,128)
-        self.decoder = nn.Sequential(
-            nn.Conv2d(1280, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,256,12,16)
-            nn.Conv2d(256, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,128,24,32)
-            nn.Conv2d(128, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,64,48,64)
-            nn.Conv2d(64, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,32,96,128)
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True)
-        )
-
-        # Segmentation head: output logits for each class.
-        self.seg_head = nn.Conv2d(32, num_classes, kernel_size=1)
-        # Depth head: output a single-channel depth map.
-        self.depth_head = nn.Conv2d(32, 1, kernel_size=1)
-
-    def forward(self, x):
-        # x: (B, 3, 192, 256)
-        features = self.encoder(x)  # (B,1280, ~6, ~8)
-        up = self.decoder(features)  # (B,32,96,128)
-        seg_logits = self.seg_head(up)  # (B, num_classes, 96, 128)
-        depth = self.depth_head(up)  # (B, 1, 96, 128)
-        depth = depth.squeeze(1)  # (B, 96, 128)
-        return seg_logits, depth
+        return pred, depth
 
 MODEL_FACTORY = {
     "classifier": Classifier,
