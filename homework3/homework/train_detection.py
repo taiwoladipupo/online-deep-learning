@@ -92,9 +92,8 @@ class CombinedLoss(nn.Module):
         if self.current_epoch < 5:
             mask = target != 0
             if mask.any():
-
-                logits = logits[:, 1:]  # Remove class 0 logits
-                ce = self.ce_loss(logits, target.clamp(min=1))
+                ce_loss_2class = nn.CrossEntropyLoss(weight=torch.tensor([2.0, 2.5], device=logits.device))
+                ce = ce_loss_2class(logits[:, 1:], target.clamp(min=1))
             else:
                 ce = self.ce_loss(logits, target)
         else:
