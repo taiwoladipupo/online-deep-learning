@@ -212,6 +212,9 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
                 print("label unique:", torch.unique(label))
                 print("=========================")
                 logits, depth_pred = model(img)
+
+                if logits.shape[2:] != label.shape[1:]:
+                    logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
                 loss = loss_func(logits, label, depth_pred, depth_true)
                 val_losses.append(loss.item())
 
