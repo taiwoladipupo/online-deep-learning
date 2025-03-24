@@ -160,6 +160,7 @@ class Detector(nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
+        x = x.to(dtype=torch.float32)
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
         x = self.channel_dropout(x)
 
