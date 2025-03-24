@@ -34,6 +34,8 @@ class CombinedLoss(nn.Module):
         if device:
             self.to(device)
 
+
+
     def set_epoch(self, epoch):
         self.current_epoch = epoch
 
@@ -41,18 +43,21 @@ class CombinedLoss(nn.Module):
         assert logits.ndim == 4 and logits.shape[1] == 3, f"Expected shape (B, 3, H, W), got {logits.shape}"
         assert target.ndim == 3, f"Expected shape (B, H, W), got {target.shape}"
 
+        if self.current_epoch < 2:
+            logits[:, 0] = -1e9  # Force it to ignore background
+
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
         depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
 
         # Suppression for background
-        suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs) * 2)
-        logits[:, 0, :, :] -= suppression * 10.0
+        suppression = max(0.0, 1.5 - (self.current_epoch / self.total_epochs))
+        logits[:, 0, :, :] -= suppression * 4.0
 
         # Encourage foreground
         boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] +=  boost * 12.0
-        logits[:, 2, :, :] += boost * 12.0
+        logits[:, 1, :, :] +=  boost * 4.0
+        logits[:, 2, :, :] += boost * 4.0
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
@@ -212,6 +217,9 @@ def train(
             # Concatenate along the batch dimension
             grid = vutils.make_grid(torch.cat([img_vis, true_mask, pred_mask], dim=0), nrow=batch_size)
             logger.add_image("val/sample_image_pred_gt", grid, global_step=global_step)
+
+        print("Pred unique:", torch.unique(pred))
+        print("Target unique:", torch.unique(label))
 
         miou = confusion_matrix.compute()
         mean_depth_mae = sum(depth_errors) / len(depth_errors)
