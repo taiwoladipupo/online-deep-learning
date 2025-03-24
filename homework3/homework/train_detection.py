@@ -22,7 +22,7 @@ class CombinedLoss(nn.Module):
         self.depth_weight = 0.05
         self.dice_loss = DiceLoss()
         self.depth_loss = nn.L1Loss()
-        self.focal = FocalLoss(alpha=[0.2, 0.4, 0.4], gamma=2)
+        self.focal = FocalLoss(alpha=[0.1, 2.0, 4.0], gamma=2)
 
         if device:
             self.to(device)
@@ -57,7 +57,8 @@ class FocalLoss(nn.Module):
         if self.alpha is not None and self.alpha.device != logits.device:
             self.alpha = self.alpha.to(logits.device)
 
-        ce_loss = F.cross_entropy(logits, target, reduction='none', weight=self.alpha)
+        log_probs = F.log_softmax(logits, dim=1)
+        ce_loss = F.cross_entropy(log_probs, target, reduction='none', weight=self.alpha)
         pt = torch.exp(-ce_loss)
         focal_loss = ((1 - pt) ** self.gamma) * ce_loss
         return focal_loss.mean()
