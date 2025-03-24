@@ -2,7 +2,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torchvision.models as models
 
 HOMEWORK_DIR = Path(__file__).resolve().parent
 INPUT_MEAN = [0.2788, 0.2657, 0.2629]
@@ -124,63 +124,81 @@ class ConvBlock(nn.Module):
 
 
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
-        Detector model.
-        Assumes input images are (B, 3, 192, 256) so that the output matches label size (B, 96, 128).
-        Outputs:
+        Detector model with a pretrained ResNet34 encoder.
+        Assumes input images are (B, 3, 192, 256).
+        The encoder downsamples the image while the decoder upsamples
+        with skip connections to produce:
          - Segmentation logits: (B, num_classes, 96, 128)
          - Depth map: (B, 96, 128)
         """
         super(Detector, self).__init__()
-        # Downsampling Block 1: from (B,3,192,256) -> (B,16,96,128)
-        self.down1 = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),  # (B,16,96,128)
-            nn.BatchNorm2d(16),
+        # Load pretrained ResNet34
+        resnet = models.resnet34(pretrained=True)
+        # Encoder: use conv1, bn1, relu from ResNet (no maxpool) to preserve more resolution.
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)  # Output: (B,64,96,128)
+        # Then include maxpool and layer1, layer2, layer3, layer4.
+        self.layer1 = nn.Sequential(resnet.maxpool, resnet.layer1)           # (B,64,48,64)
+        self.layer2 = resnet.layer2                                           # (B,128,24,32)
+        self.layer3 = resnet.layer3                                           # (B,256,12,16)
+        self.layer4 = resnet.layer4                                           # (B,512,6,8)
+
+        # Decoder: use transposed convolutions with skip connections.
+        self.up4 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)      # (B,256,12,16)
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(256+256, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True)
         )
-        # Downsampling Block 2: from (B,16,96,128) -> (B,32,48,64)
-        self.down2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), # (B,32,48,64)
-            nn.BatchNorm2d(32),
+        self.up3 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)      # (B,128,24,32)
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(128+128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
             nn.ReLU(inplace=True)
         )
-        # Upsampling Block 1: upsample from (B,32,48,64) -> (B,16,96,128)
-        self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2),   # (B,16,96,128)
-            nn.BatchNorm2d(16),
+        self.up2 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)       # (B,64,48,64)
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(64+64, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(inplace=True)
         )
-        # Skip connection: concatenate up1 output with down1 features (both now (B,16,96,128))
-        # After concatenation, channels = 32.
-        self.conv_up1 = nn.Sequential(
-            nn.Conv2d(32, 16, kernel_size=3, padding=1),  # (B,16,96,128)
-            nn.BatchNorm2d(16),
+        self.up1 = nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2)        # (B,64,96,128)
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(64+64, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(inplace=True)
         )
-        # Segmentation head: outputs logits (B, num_classes, 96, 128)
-        self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)
-        # Depth head: outputs depth (B, 1, 96, 128) -> squeeze to (B,96,128)
-        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
+        # Final segmentation and depth heads.
+        self.seg_head = nn.Conv2d(64, num_classes, kernel_size=1)
+        self.depth_head = nn.Conv2d(64, 1, kernel_size=1)
 
     def forward(self, x):
-        # x: (B, 3, 192, 256)
-        d1 = self.down1(x)       # (B,16,96,128)
-        d2 = self.down2(d1)      # (B,32,48,64)
-        u1 = self.up1(d2)        # (B,16,96,128)
-        # Concatenate skip connection from d1 with upsampled features along channel dimension.
-        u1_cat = torch.cat([u1, d1], dim=1)  # (B,32,96,128)
-        u1_out = self.conv_up1(u1_cat)        # (B,16,96,128)
-        logits = self.seg_head(u1_out)        # (B,3,96,128)
-        depth = self.depth_head(u1_out)       # (B,1,96,128)
-        depth = depth.squeeze(1)              # (B,96,128)
-        return logits, depth
-
+        # Encoder
+        x0 = self.layer0(x)   # (B,64,96,128)
+        x1 = self.layer1(x0)  # (B,64,48,64)
+        x2 = self.layer2(x1)  # (B,128,24,32)
+        x3 = self.layer3(x2)  # (B,256,12,16)
+        x4 = self.layer4(x3)  # (B,512,6,8)
+        # Decoder with skip connections
+        d4 = self.up4(x4)     # (B,256,12,16)
+        d4 = torch.cat([d4, x3], dim=1)  # (B,512,12,16)
+        d4 = self.conv4(d4)   # (B,256,12,16)
+        d3 = self.up3(d4)     # (B,128,24,32)
+        d3 = torch.cat([d3, x2], dim=1)  # (B,256,24,32)
+        d3 = self.conv3(d3)   # (B,128,24,32)
+        d2 = self.up2(d3)     # (B,64,48,64)
+        d2 = torch.cat([d2, x1], dim=1)  # (B,128,48,64)
+        d2 = self.conv2(d2)   # (B,64,48,64)
+        d1 = self.up1(d2)     # (B,64,96,128)
+        d1 = torch.cat([d1, x0], dim=1)  # (B,128,96,128)
+        d1 = self.conv1(d1)   # (B,64,96,128)
+        seg_logits = self.seg_head(d1)  # (B, num_classes, 96,128)
+        depth = self.depth_head(d1)     # (B,1,96,128)
+        depth = depth.squeeze(1)        # (B,96,128)
+        return seg_logits, depth
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
