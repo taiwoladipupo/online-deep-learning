@@ -25,7 +25,7 @@ class CombinedLoss(nn.Module):
         class_weights = class_weights / class_weights.sum() * len(class_weights)
         self.class_weights = class_weights.to(device)
 
-        self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights, label_smoothing=0.05)
+        self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=2.0)
         self.depth_loss = nn.L1Loss()
 
         self.dice_loss = DiceLoss()
@@ -60,13 +60,33 @@ class CombinedLoss(nn.Module):
         seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
         depth_weight = self.depth_weight if self.current_epoch >= 5 else 0.0
 
-        seg_loss = seg_loss_fn(logits, target) # using dynamic CE
+        seg_loss = self.seg_loss(logits, target) #seg_loss_fn(logits, target) # using dynamic CE
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
         total = 0.7 * seg_loss + 0.35 * dice + depth_weight * depth
 
         return total
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
+        pt = torch.exp(-ce_loss)  # pt is the probability of the true class
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
