@@ -164,8 +164,10 @@ def train(
 
             logits, depth_pred = model(img)
             # resizes the depth prediction to match the target size
+            # Resize logits to match label size if needed
             if logits.shape[2:] != label.shape[1:]:
-                logits = F.interpolate(logits, label.shape[1:], mode='bilinear', align_corners=False)
+                logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
+
             loss_val = loss_func(logits, label, depth_pred, depth_true)
 
             optimizer.zero_grad()
