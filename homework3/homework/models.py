@@ -151,7 +151,11 @@ class Detector(nn.Module):
         self.conv3 = ConvBlock(32, 16)
 
         self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
-        nn.init.constant_(self.segmentation_head.bias, 0.0)
+        prior = torch.tensor([0.7, 0.15, 0.15])
+        bias = -torch.log((1 - prior) / prior)
+        with torch.no_grad():
+            self.segmentation_head.bias.data.copy_(bias)
+        #nn.init.constant_(self.segmentation_head.bias, 0.0)
         self.segmentation_head.bias.data[0] = -2.0  # Suppress background bias
 
         self.depth_head = nn.Sequential(

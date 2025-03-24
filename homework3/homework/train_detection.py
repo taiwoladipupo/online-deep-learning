@@ -1,45 +1,6 @@
-import argparse
-from datetime import datetime
-from pathlib import Path
-from collections import Counter
-import numpy as np
-import torch
-import torch.utils.tensorboard as tb
-from torch import nn
-import torch.nn.functional as F
-from torch.cuda import device
-
-from .models import load_model, save_model
-from .datasets.road_dataset import load_data
-from .metrics import ConfusionMatrix
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2):
-        super().__init__()
-        self.gamma = gamma
-        if alpha is not None:
-            self.alpha = torch.tensor(alpha)
-        else:
-            self.alpha = None
-
-    def forward(self, logits, target):
-        log_probs = F.log_softmax(logits, dim=1)
-        probs = torch.exp(log_probs)
-        target = target.long()
-
-        if self.alpha is not None:
-            alpha = self.alpha.to(logits.device)
-            at = alpha.gather(0, target.view(-1)).view_as(target)
-        else:
-            at = 1.0
-
-        ce = F.nll_loss(log_probs, target, reduction='none')
-        focal = at * (1 - probs.gather(1, target.unsqueeze(1)).squeeze(1))**self.gamma * ce
-        return focal.mean()
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
@@ -60,7 +21,10 @@ class CombinedLoss(nn.Module):
         super().__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
-        self.focal_loss = FocalLoss(alpha=[1.0, 2.0, 2.0], gamma=2)
+
+        # Adjust these weights based on class imbalance stats
+        class_weights = torch.tensor([1.0, 3.0, 4.0], dtype=torch.float32)
+        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.dice_loss = DiceLoss()
         self.depth_loss = nn.L1Loss()
         self.depth_weight = 0.05
@@ -72,19 +36,18 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
-        if self.current_epoch < 5 :
-             logits[:, 1:, :, :] += 1.0
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
         if depth_true.ndim == 4:
             depth_true = depth_true.squeeze(1)
 
-        seg_focal = self.focal_loss(logits, target)
-        seg_dice = self.dice_loss(logits, target)
+        ce = self.ce_loss(logits, target)
+        dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.7 * seg_focal + 0.3 * seg_dice + self.depth_weight * depth
-        return total
+        total_loss = 0.7 * ce + 0.3 * dice + self.depth_weight * depth
+        return total_loss
+
 
 def warmup_scheduler(optimizer, warmup_epochs=3):
     def lr_lambda(epoch):
