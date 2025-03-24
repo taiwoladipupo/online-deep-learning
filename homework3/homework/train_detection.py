@@ -43,15 +43,15 @@ class CombinedLoss(nn.Module):
 
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
-        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
+        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true = depth_true.squeeze(1)
         # Suppression for background
         suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs) * 2)
-        logits[:, 0, :, :] -= suppression * 0.4
+        logits[:, 0, :, :] -= suppression * 0.5
 
         # Encourage foreground
-        boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs / 2))
-        logits[:, 1, :, :] += boost * 10.0
-        logits[:, 2, :, :] += boost * 10.0
+        boost = max(0.0, 1.0 - self.current_epoch / (self.total_epochs * 0.5))
+        logits[:, 1, :, :] += 2.5 * boost
+        logits[:, 2, :, :] += 2.0 * boost
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
@@ -62,7 +62,7 @@ class CombinedLoss(nn.Module):
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total = 0.3 * seg_loss + 0.7 * dice + self.depth_weight * depth
+        total = 0.65 * seg_loss + 0.35 * dice + self.depth_weight * depth
 
 
         return total
