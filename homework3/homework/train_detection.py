@@ -59,6 +59,7 @@ class DiceLoss(nn.Module):
 
         intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
         union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
+        print("target min:", target.min(), "max:", target.max())
 
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
@@ -166,6 +167,12 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             label = batch["track"].to(device)
             depth_true = batch["depth"].to(device)
 
+            print("\n=== DEBUG TRAIN BATCH ===")
+            print("label shape:", label.shape)
+            print("label min:", label.min().item(), "label max:", label.max().item())
+            print("label unique:", torch.unique(label))
+            print("=========================")
+
             logits, depth_pred = model(img)
             loss = loss_func(logits, label, depth_pred, depth_true)
 
@@ -190,6 +197,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
                 label = batch["track"].to(device)
                 depth_true = batch["depth"].to(device)
 
+                print("\n=== DEBUG VAL BATCH ===")
+                print("label shape:", label.shape)
+                print("label min:", label.min().item(), "label max:", label.max().item())
+                print("label unique:", torch.unique(label))
+                print("=========================")
                 logits, depth_pred = model(img)
                 loss = loss_func(logits, label, depth_pred, depth_true)
                 val_losses.append(loss.item())
