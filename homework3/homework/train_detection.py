@@ -54,7 +54,7 @@ class CombinedLoss(nn.Module):
         weights[0] = max(0.1, 1.0 - self.current_epoch / self.total_epochs)
         seg_loss_fn = nn.CrossEntropyLoss(weight=weights)
 
-        seg_loss = self.seg_loss_fn(logits, target) # using dynamic CE
+        seg_loss = seg_loss_fn(logits, target) # using dynamic CE
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
