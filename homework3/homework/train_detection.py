@@ -164,7 +164,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
 
     model = load_model(model_name, **kwargs).to(device)
     loss_func = CombinedLoss(device=device, total_epochs=num_epoch, use_focal_loss=True,
-                             seg_loss_weight=1.0, depth_loss_weight=0.0, remap_target=True)
+                             seg_loss_weight=1.0, depth_loss_weight=0.0, remap_target=False)
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     scheduler = warmup_scheduler(optimizer)
