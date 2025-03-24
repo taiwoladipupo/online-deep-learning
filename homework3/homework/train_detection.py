@@ -48,15 +48,18 @@ class CombinedLoss(nn.Module):
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2.0):
+    def __init__(self, alpha=None, gamma=2):
         super().__init__()
-        self.alpha = alpha
         self.gamma = gamma
+        self.alpha = torch.tensor(alpha) if alpha else None
 
     def forward(self, logits, target):
-        logpt = -F.cross_entropy(logits, target, weight=self.alpha, reduction='none')
-        pt = torch.exp(logpt)
-        focal_loss = -((1 - pt) ** self.gamma) * logpt
+        if self.alpha is not None and self.alpha.device != logits.device:
+            self.alpha = self.alpha.to(logits.device)
+
+        ce_loss = F.cross_entropy(logits, target, reduction='none', weight=self.alpha)
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
         return focal_loss.mean()
 
 
