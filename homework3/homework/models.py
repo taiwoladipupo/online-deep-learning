@@ -124,65 +124,63 @@ class ConvBlock(nn.Module):
 
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
-        Detector model that outputs segmentation logits and depth.
-        Input:  (B, 3, H, W)
-        Outputs: segmentation logits (B, num_classes, H, W)
-                 depth prediction (B, H, W)
+        Detector model.
+        Assumes input images are (B, 3, 192, 256) so that the output matches label size (B, 96, 128).
+        Outputs:
+         - Segmentation logits: (B, num_classes, 96, 128)
+         - Depth map: (B, 96, 128)
         """
         super(Detector, self).__init__()
-
-        # Downsampling block 1: reduces spatial dims by 2: (H, W) -> (H/2, W/2)
+        # Downsampling Block 1: from (B,3,192,256) -> (B,16,96,128)
         self.down1 = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),  # (B,16, H/2, W/2)
+            nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),  # (B,16,96,128)
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True)
         )
-        # Downsampling block 2: further reduces dims by 2: (H/2, W/2) -> (H/4, W/4)
+        # Downsampling Block 2: from (B,16,96,128) -> (B,32,48,64)
         self.down2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),  # (B,32, H/4, W/4)
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), # (B,32,48,64)
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True)
         )
-        # Upsampling block 1: upsample from (H/4, W/4) to (H/2, W/2)
+        # Upsampling Block 1: upsample from (B,32,48,64) -> (B,16,96,128)
         self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2),  # (B,16, H/2, W/2)
+            nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2),   # (B,16,96,128)
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True)
         )
-        # Combine with skip connection from down1 (both now at H/2, W/2).
-        # After concatenation: 16 (from up1) + 16 (from down1) = 32 channels.
+        # Skip connection: concatenate up1 output with down1 features (both now (B,16,96,128))
+        # After concatenation, channels = 32.
         self.conv_up1 = nn.Sequential(
-            nn.Conv2d(32, 16, kernel_size=3, padding=1),
+            nn.Conv2d(32, 16, kernel_size=3, padding=1),  # (B,16,96,128)
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True)
         )
-        # Upsampling block 2: upsample from (H/2, W/2) to original (H, W)
-        self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(16, 16, kernel_size=2, stride=2),  # (B,16, H, W)
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True)
-        )
-        # Segmentation head: output logits for each class (no activation)
-        self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)  # (B, num_classes, H, W)
-        # Depth head: output single-channel depth
-        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)  # (B,1,H,W)
+        # Segmentation head: outputs logits (B, num_classes, 96, 128)
+        self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)
+        # Depth head: outputs depth (B, 1, 96, 128) -> squeeze to (B,96,128)
+        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
 
     def forward(self, x):
-        # x shape: (B, 3, H, W)
-        d1 = self.down1(x)  # -> (B,16, H/2, W/2)
-        d2 = self.down2(d1)  # -> (B,32, H/4, W/4)
-        u1 = self.up1(d2)  # -> (B,16, H/2, W/2)
-        # Skip connection: concatenate along the channel dimension
-        u1_cat = torch.cat([u1, d1], dim=1)  # -> (B, 32, H/2, W/2)
-        u1_out = self.conv_up1(u1_cat)  # -> (B,16, H/2, W/2)
-        u2 = self.up2(u1_out)  # -> (B,16, H, W)
-        logits = self.seg_head(u2)  # -> (B, num_classes, H, W)
-        depth = self.depth_head(u2)  # -> (B,1, H, W)
-        depth = depth.squeeze(1)  # -> (B, H, W)
+        # x: (B, 3, 192, 256)
+        d1 = self.down1(x)       # (B,16,96,128)
+        d2 = self.down2(d1)      # (B,32,48,64)
+        u1 = self.up1(d2)        # (B,16,96,128)
+        # Concatenate skip connection from d1 with upsampled features along channel dimension.
+        u1_cat = torch.cat([u1, d1], dim=1)  # (B,32,96,128)
+        u1_out = self.conv_up1(u1_cat)        # (B,16,96,128)
+        logits = self.seg_head(u1_out)        # (B,3,96,128)
+        depth = self.depth_head(u1_out)       # (B,1,96,128)
+        depth = depth.squeeze(1)              # (B,96,128)
         return logits, depth
+
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """

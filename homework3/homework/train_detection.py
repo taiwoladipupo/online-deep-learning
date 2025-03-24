@@ -16,6 +16,10 @@ import os
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class FocalLoss(nn.Module):
     def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
         super(FocalLoss, self).__init__()
@@ -25,9 +29,8 @@ class FocalLoss(nn.Module):
 
     def forward(self, inputs, targets):
         ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
-        pt = torch.exp(-ce_loss)  # pt is the probability of the true class
+        pt = torch.exp(-ce_loss)
         focal_loss = (1 - pt) ** self.gamma * ce_loss
-
         if self.reduction == 'mean':
             return focal_loss.mean()
         elif self.reduction == 'sum':
@@ -40,29 +43,71 @@ class DiceLoss(nn.Module):
         super(DiceLoss, self).__init__()
         self.smooth = smooth
 
-    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
+    def forward(self, logits, target):
+        # logits: (B, C, H, W), target: (B, H, W)
         probs = torch.softmax(logits, dim=1)
-
-        # Move to CPU before printing to avoid CUDA error
-        target_cpu = target.detach().cpu()
-        #
-        # print("=== Debug DiceLoss ===")
-        # print("logits shape:", logits.shape)
-        # print("target shape:", target.shape)
-        # print("target min:", target_cpu.min().item(), "target max:", target_cpu.max().item())
-        # print("unique labels in target:", torch.unique(target_cpu))
-        # print("num_classes (from probs):", probs.shape[1])
-        # print("=======================")
-
-        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
+        target_one_hot = F.one_hot(target, num_classes=probs.shape[1])
         target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
-
         intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
         union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
-        # print("target min:", target.min(), "max:", target.max())
-
         dice = (2. * intersection + self.smooth) / (union + self.smooth)
         return 1 - dice.mean()
+
+class CombinedLoss(nn.Module):
+    def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
+                 seg_loss_weight=1.0, depth_loss_weight=0.0):
+        """
+        Combined loss for segmentation and depth.
+        Here, depth_loss_weight is set to 0 to focus on segmentation.
+        Class weights have been increased for classes 1 and 2.
+        """
+        super().__init__()
+        self.total_epochs = total_epochs
+        self.current_epoch = 0
+        self.use_focal_loss = use_focal_loss
+        self.seg_loss_weight = seg_loss_weight
+        self.depth_loss_weight = depth_loss_weight
+
+        # Updated class weights: background has low weight; lane boundaries & other small classes higher.
+        self.class_weights = torch.tensor([0.1, 4.0, 5.0], dtype=torch.float32)
+        if self.use_focal_loss:
+            self.seg_loss = FocalLoss(alpha=self.class_weights, gamma=2.0)
+        else:
+            self.seg_loss = nn.CrossEntropyLoss(weight=self.class_weights)
+        self.dice_loss = DiceLoss()
+        self.depth_loss = nn.L1Loss()
+
+        if device:
+            self.to(device)
+
+    def set_epoch(self, epoch):
+        self.current_epoch = epoch
+
+    def forward(self, logits, target, depth_pred, depth_true):
+        device = logits.device
+        target = target.to(device)
+        depth_true = depth_true.to(device)
+
+        # Ensure logits match target spatial dimensions
+        if logits.shape[2:] != target.shape[1:]:
+            logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
+
+        seg_loss_ce = self.seg_loss(logits, target)
+        seg_loss_dice = self.dice_loss(logits, target)
+        seg_loss_total = seg_loss_ce + seg_loss_dice
+
+        # Process depth prediction (if used)
+        if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
+            depth_pred = depth_pred.squeeze(1)
+        if depth_true.ndim == 4 and depth_true.shape[1] == 1:
+            depth_true = depth_true.squeeze(1)
+        if depth_pred.shape[-2:] != depth_true.shape[-2:]:
+            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
+        depth_loss_val = self.depth_loss(depth_pred, depth_true)
+
+        total_loss = self.seg_loss_weight * seg_loss_total + self.depth_loss_weight * depth_loss_val
+        return total_loss
+
 
 class WarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, total_steps, last_epoch=-1):
@@ -76,67 +121,6 @@ class WarmupScheduler(_LRScheduler):
         else:
             return [base_lr * (self.total_steps - self.last_epoch) / (self.total_steps - self.warmup_steps) for base_lr in self.base_lrs]
 
-class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=25):
-        super().__init__()
-        self.total_epochs = total_epochs
-        self.current_epoch = 0
-
-        # Weight background lower, emphasize small classes
-        self.class_weights = torch.tensor([0.1, 2.0, 2.5], dtype=torch.float32)
-        self.ce_loss = nn.CrossEntropyLoss(weight=self.class_weights.to(device))
-        self.dice_loss = DiceLoss()
-        self.depth_loss = nn.L1Loss()
-        self.depth_weight = 0.05
-
-        if device:
-            self.to(device)
-
-    def set_epoch(self, epoch):
-        self.current_epoch = epoch
-
-    def forward(self, logits, target, depth_pred, depth_true):
-        target = target.to(logits.device)
-        depth_true = depth_true.to(depth_pred.device)
-
-        # Fix depth shape
-        if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
-            depth_pred = depth_pred.squeeze(1)
-        if depth_true.ndim == 4 and depth_true.shape[1] == 1:
-            depth_true = depth_true.squeeze(1)
-
-        # Match shape
-        if logits.shape[2:] != target.shape[1:]:
-            logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
-
-        # if self.current_epoch < 5:
-        #     # Suppress class 0
-        #     mask = target != 0
-        #     if mask.any():
-        #         # Slice and remap
-        #         logits = logits[:, 1:]
-        #         target = target.clone()
-        #         target = torch.where(target == 1, torch.tensor(0, device=target.device), target)
-        #         target = torch.where(target == 2, torch.tensor(1, device=target.device), target)
-        #
-        #         # Use weights for the 2-class case (skip background)
-        #         weights = torch.tensor([2.0, 2.5], dtype=torch.float32).to(logits.device)
-        #         ce = F.cross_entropy(logits, target, weight=weights)
-        #
-        #     else:
-        #         ce = self.ce_loss(logits, target)
-        # else:
-        #     ce = self.ce_loss(logits, target)
-        ce = self.ce_loss(logits, target)
-        # Match depth_pred to depth_true spatial size
-        if depth_pred.shape != depth_true.shape:
-            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
-                                       align_corners=False).squeeze(1)
-
-        dice = self.dice_loss(logits, target)
-        depth = self.depth_loss(depth_pred, depth_true)
-
-        return 0.7 * ce + 0.3 * dice + self.depth_weight * depth
 
 
 def match_shape(pred, target):
