@@ -159,6 +159,7 @@ class Detector(nn.Module):
             self.seg_head.bias.copy_(bias)
 
     def forward(self, x):
+        x = x.float()
         enc1 = self.encoder1(x)
         enc2 = self.encoder2(self.pool(enc1))
         enc3 = self.encoder3(self.pool(enc2))
