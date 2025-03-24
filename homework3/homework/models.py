@@ -137,7 +137,8 @@ class Detector(nn.Module):
         """
         super(Detector, self).__init__()
         # Load pretrained ResNet18
-        resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        resnet = models.resnet18(pretrained=True)
+
         # Encoder: use conv1, bn1, relu from ResNet (no maxpool) to preserve more resolution.
         self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)  # Output: (B,64,96,128)
         # Then include maxpool and layer1, layer2, layer3, layer4.
