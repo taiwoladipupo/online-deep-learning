@@ -60,7 +60,7 @@ class CombinedLoss(nn.Module):
         super().__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
-        self.focal_loss = FocalLoss(alpha=[0.1, 2.0, 4.0], gamma=2)
+        self.focal_loss = FocalLoss(alpha=[1.0, 2.0, 2.0], gamma=2)
         self.dice_loss = DiceLoss()
         self.depth_loss = nn.L1Loss()
         self.depth_weight = 0.05
@@ -72,6 +72,8 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
+        if self.current_epoch < 5 :
+             logits[:, 1:, :, :] += 1.0
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
         if depth_true.ndim == 4:
@@ -179,6 +181,9 @@ def train(
                 confusion_matrix.add(pred, label)
 
                 depth_errors.append(torch.abs(depth_pred - depth_true).mean().item())
+            probs = F.softmax(logits, dim=1)
+            avg_probs = probs.mean(dim=(0,2,3))
+            print("Average class probabilities:", avg_probs)
 
         if epoch % 5 == 0 :  # just one batch to reduce clutter
             import torchvision.utils as vutils
