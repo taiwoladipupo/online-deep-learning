@@ -38,6 +38,12 @@ class DiceLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
         probs = torch.softmax(logits, dim=1)
+        print("=== Debug DiceLoss ===")
+        print("logits shape:", logits.shape)
+        print("target shape:", target.shape)
+        print("target min:", target.min().item(), "target max:", target.max().item())
+        print("num_classes (from probs):", probs.shape[1])
+        print("=======================")
         target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
         target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
 
