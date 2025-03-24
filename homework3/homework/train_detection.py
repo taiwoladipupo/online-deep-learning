@@ -38,6 +38,9 @@ class DiceLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
         probs = torch.softmax(logits, dim=1)
+
+        target_cpu = target.detach().cpu()
+
         print("=== Debug DiceLoss ===")
         print("logits shape:", logits.shape)
         print("target shape:", target.shape)
