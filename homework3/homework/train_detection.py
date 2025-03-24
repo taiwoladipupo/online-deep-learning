@@ -136,7 +136,7 @@ def train(
 
         model.train()
         loss_func.set_epoch(epoch)
-        loss_func(device, total_epochs=num_epoch)
+        loss_func.total_epochs = num_epoch
 
         pixel_counter = Counter()
         for batch in train_data:
@@ -178,11 +178,11 @@ def train(
 
                 depth_errors.append(torch.abs(depth_pred - depth_true).mean().item())
 
-                best_miou = 0
-                best_model = None
-                if miou["iou"] > best_miou:
-                    best_miou = miou["iou"]
-                    best_model = model
+        best_miou = 0
+        best_model = None
+        if miou["iou"] > best_miou:
+         best_miou = miou["iou"]
+         best_model = model
 
         if best_model:
             torch.save(best_model, log_dir / "best_model.th")
