@@ -65,8 +65,9 @@ class CombinedLoss(nn.Module):
         self.total_epochs = total_epochs
         self.current_epoch = 0
 
-        class_weights = torch.tensor([0.05, 1.0, 1.5], dtype=torch.float32)
-        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device), ignore_index=255)
+        # Weight background lower, emphasize small classes
+        self.class_weights = torch.tensor([0.1, 1.0, 2.0], dtype=torch.float32)
+        self.ce_loss = nn.CrossEntropyLoss(weight=self.class_weights.to(device))
         self.dice_loss = DiceLoss()
         self.depth_loss = nn.L1Loss()
         self.depth_weight = 0.05
@@ -81,22 +82,23 @@ class CombinedLoss(nn.Module):
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
 
-        if depth_true.ndim == 3:
-            depth_true = depth_true.unsqueeze(1)
+        if depth_true.ndim == 4:
+            depth_true = depth_true.squeeze(1)  # ensure shape is (B, H, W)
 
-        # Suppress class 0 in early epochs using ignore_index
-        if self.current_epoch < 5:
-            target_masked = target.clone()
-            target_masked[target_masked == 0] = 255  # ignore class 0
-            ce = self.ce_loss(logits, target_masked)
+        # Suppress class 0 for first few epochs
+        if self.current_epoch < 3:
+            logits = logits[:, 1:]  # Remove class 0 logits
+            target = target.clamp(min=1) - 1  # shift labels to [0, 1]
+            ce = F.cross_entropy(logits, target)
         else:
             ce = self.ce_loss(logits, target)
 
         dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total_loss = 0.7 * ce + 0.3 * dice + self.depth_weight * depth
-        return total_loss
+        total = 0.7 * ce + 0.3 * dice + self.depth_weight * depth
+        return total
+
 
 
 def match_shape(pred, target):

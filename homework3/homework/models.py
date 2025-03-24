@@ -145,6 +145,9 @@ class Detector(nn.Module):
         # Segmentation head
         self.seg_head = nn.Conv2d(32, num_classes, kernel_size=1)
 
+        with torch.no_grad():
+            self.seg_head.bias.data = torch.tensor([-3.0, 1.0, 1.0])
+
         # Depth head
         self.depth_head = nn.Sequential(
             nn.Conv2d(32, 1, kernel_size=1),
