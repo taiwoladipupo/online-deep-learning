@@ -232,6 +232,20 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
 
                 pred = logits.argmax(dim=1)
                 confusion_matrix.add(pred, label)
+                # Match spatial sizes before L1 loss
+                if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
+                    depth_pred = depth_pred.squeeze(1)
+                if depth_true.ndim == 4 and depth_true.shape[1] == 1:
+                    depth_true = depth_true.squeeze(1)
+                if depth_pred.shape != depth_true.shape:
+                    depth_pred = F.interpolate(
+                        depth_pred.unsqueeze(1),
+                        size=depth_true.shape[-2:],
+                        mode='bilinear',
+                        align_corners=False
+                    ).squeeze(1)
+
+                depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
 
                 depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
 
