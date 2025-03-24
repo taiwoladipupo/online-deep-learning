@@ -36,6 +36,8 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
+        if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
+            depth_pred = depth_pred.squeeze(1)
         # Suppression/boost logic
         suppression = max(0.0, 2.0 - 2.0 * (self.current_epoch / self.total_epochs))
         logits[:, 0] -= suppression
