@@ -13,16 +13,57 @@ from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 from .metrics import ConfusionMatrix
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2):
+        super().__init__()
+        self.gamma = gamma
+        if alpha is not None:
+            self.alpha = torch.tensor(alpha)
+        else:
+            self.alpha = None
+
+    def forward(self, logits, target):
+        log_probs = F.log_softmax(logits, dim=1)
+        probs = torch.exp(log_probs)
+        target = target.long()
+
+        if self.alpha is not None:
+            alpha = self.alpha.to(logits.device)
+            at = alpha.gather(0, target.view(-1)).view_as(target)
+        else:
+            at = 1.0
+
+        ce = F.nll_loss(log_probs, target, reduction='none')
+        focal = at * (1 - probs.gather(1, target.unsqueeze(1)).squeeze(1))**self.gamma * ce
+        return focal.mean()
+
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=1e-6):
+        super().__init__()
+        self.smooth = smooth
+
+    def forward(self, logits, target):
+        probs = F.softmax(logits, dim=1)
+        target_one_hot = F.one_hot(target, num_classes=probs.shape[1]).permute(0, 3, 1, 2).float()
+
+        intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
+        union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
+        dice = (2 * intersection + self.smooth) / (union + self.smooth)
+        return 1 - dice.mean()
+
 class CombinedLoss(nn.Module):
     def __init__(self, device=None, total_epochs=25):
         super().__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
-
-        self.depth_weight = 0.05
+        self.focal_loss = FocalLoss(alpha=[0.1, 2.0, 4.0], gamma=2)
         self.dice_loss = DiceLoss()
         self.depth_loss = nn.L1Loss()
-        self.focal = FocalLoss(alpha=[0.1, 2.0, 4.0], gamma=2)
+        self.depth_weight = 0.05
 
         if device:
             self.to(device)
@@ -33,53 +74,15 @@ class CombinedLoss(nn.Module):
     def forward(self, logits, target, depth_pred, depth_true):
         target = target.to(logits.device)
         depth_true = depth_true.to(depth_pred.device)
-        depth_true = depth_true.squeeze(1) if depth_true.ndim == 4 else depth_true
+        if depth_true.ndim == 4:
+            depth_true = depth_true.squeeze(1)
 
-        if self.current_epoch == 0:
-            logits[:, 0] -= 2.0  # Temporary background suppression
-
-        seg_loss = self.focal(logits, target)
-        dice = self.dice_loss(logits, target)
+        seg_focal = self.focal_loss(logits, target)
+        seg_dice = self.dice_loss(logits, target)
         depth = self.depth_loss(depth_pred, depth_true)
 
-        total_loss = 0.7 * seg_loss + 0.3 * dice + self.depth_weight * depth
-        return total_loss
-
-
-
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2):
-        super().__init__()
-        self.gamma = gamma
-        self.alpha = torch.tensor(alpha) if alpha else None
-
-    def forward(self, logits, target):
-        if self.alpha is not None and self.alpha.device != logits.device:
-            self.alpha = self.alpha.to(logits.device)
-
-        log_probs = F.log_softmax(logits, dim=1)
-        ce_loss = F.cross_entropy(log_probs, target, reduction='none', weight=self.alpha)
-        pt = torch.exp(-ce_loss)
-        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
-        return focal_loss.mean()
-
-
-
-class DiceLoss(nn.Module):
-    def __init__(self, smooth=1e-6):
-        super(DiceLoss, self).__init__()
-        self.smooth = smooth
-
-    def forward(self, logits: torch.Tensor, target: torch.LongTensor) -> torch.Tensor:
-        probs = torch.softmax(logits, dim=1)
-        target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
-        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
-
-        intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
-        union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
-
-        dice = (2. * intersection + self.smooth) / (union + self.smooth)
-        return 1 - dice.mean()
+        total = 0.7 * seg_focal + 0.3 * seg_dice + self.depth_weight * depth
+        return total
 
 def warmup_scheduler(optimizer, warmup_epochs=3):
     def lr_lambda(epoch):
