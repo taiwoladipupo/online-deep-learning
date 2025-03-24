@@ -25,6 +25,9 @@ class CombinedLoss(nn.Module):
         self.depth_loss = nn.L1Loss()
         self.seg_depth_weight = 0.05
 
+        self.current_epoch = 0
+        self.total_epochs = 25
+
 
     def set_epoch(self, epoch):
         self.current_epoch = epoch
