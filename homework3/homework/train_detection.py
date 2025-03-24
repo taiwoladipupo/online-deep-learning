@@ -1,5 +1,4 @@
 import argparse
-
 import torch
 import torch.nn as nn
 import numpy as np
@@ -271,9 +270,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_epoch", type=int, default=50)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=2024)
+    parser.add_argument("--transform_pipeline", type=str, default="default")
 
-    # optional: additional model hyperparameters
-    # parser.add_argument("--num_layers", type=int, default=3)
-
-    # pass all arguments to train
-    train(**vars(parser.parse_args()))
+    args = parser.parse_args()
+    train(args.exp_dir, args.model_name, args.num_epoch, args.lr, args.seed, args.transform_pipeline)
