@@ -45,14 +45,14 @@ class DiceLoss(nn.Module):
 
         # Move to CPU before printing to avoid CUDA error
         target_cpu = target.detach().cpu()
-
-        print("=== Debug DiceLoss ===")
-        print("logits shape:", logits.shape)
-        print("target shape:", target.shape)
-        print("target min:", target_cpu.min().item(), "target max:", target_cpu.max().item())
-        print("unique labels in target:", torch.unique(target_cpu))
-        print("num_classes (from probs):", probs.shape[1])
-        print("=======================")
+        #
+        # print("=== Debug DiceLoss ===")
+        # print("logits shape:", logits.shape)
+        # print("target shape:", target.shape)
+        # print("target min:", target_cpu.min().item(), "target max:", target_cpu.max().item())
+        # print("unique labels in target:", torch.unique(target_cpu))
+        # print("num_classes (from probs):", probs.shape[1])
+        # print("=======================")
 
         target_one_hot = torch.nn.functional.one_hot(target, num_classes=probs.shape[1])
         target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
@@ -109,25 +109,25 @@ class CombinedLoss(nn.Module):
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
-        if self.current_epoch < 5:
-            # Suppress class 0
-            mask = target != 0
-            if mask.any():
-                # Slice and remap
-                logits = logits[:, 1:]
-                target = target.clone()
-                target = torch.where(target == 1, torch.tensor(0, device=target.device), target)
-                target = torch.where(target == 2, torch.tensor(1, device=target.device), target)
-
-                # Use weights for the 2-class case (skip background)
-                weights = torch.tensor([2.0, 2.5], dtype=torch.float32).to(logits.device)
-                ce = F.cross_entropy(logits, target, weight=weights)
-
-            else:
-                ce = self.ce_loss(logits, target)
-        else:
-            ce = self.ce_loss(logits, target)
-
+        # if self.current_epoch < 5:
+        #     # Suppress class 0
+        #     mask = target != 0
+        #     if mask.any():
+        #         # Slice and remap
+        #         logits = logits[:, 1:]
+        #         target = target.clone()
+        #         target = torch.where(target == 1, torch.tensor(0, device=target.device), target)
+        #         target = torch.where(target == 2, torch.tensor(1, device=target.device), target)
+        #
+        #         # Use weights for the 2-class case (skip background)
+        #         weights = torch.tensor([2.0, 2.5], dtype=torch.float32).to(logits.device)
+        #         ce = F.cross_entropy(logits, target, weight=weights)
+        #
+        #     else:
+        #         ce = self.ce_loss(logits, target)
+        # else:
+        #     ce = self.ce_loss(logits, target)
+        ce = self.ce_loss(logits, target)
         # Match depth_pred to depth_true spatial size
         if depth_pred.shape != depth_true.shape:
             depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
@@ -179,11 +179,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             label = batch["track"].to(device)
             depth_true = batch["depth"].to(device)
 
-            print("\n=== DEBUG TRAIN BATCH ===")
-            print("label shape:", label.shape)
-            print("label min:", label.min().item(), "label max:", label.max().item())
-            print("label unique:", torch.unique(label))
-            print("=========================")
+            # print("\n=== DEBUG TRAIN BATCH ===")
+            # print("label shape:", label.shape)
+            # print("label min:", label.min().item(), "label max:", label.max().item())
+            # print("label unique:", torch.unique(label))
+            # print("=========================")
 
             logits, depth_pred = model(img)
             print("logits shape:", logits.shape)
@@ -218,11 +218,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
                 label = batch["track"].to(device)
                 depth_true = batch["depth"].to(device)
 
-                print("\n=== DEBUG VAL BATCH ===")
-                print("label shape:", label.shape)
-                print("label min:", label.min().item(), "label max:", label.max().item())
-                print("label unique:", torch.unique(label))
-                print("=========================")
+                # print("\n=== DEBUG VAL BATCH ===")
+                # print("label shape:", label.shape)
+                # print("label min:", label.min().item(), "label max:", label.max().item())
+                # print("label unique:", torch.unique(label))
+                # print("=========================")
                 logits, depth_pred = model(img)
 
                 if logits.shape[2:] != label.shape[1:]:
@@ -245,7 +245,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
                         align_corners=False
                     ).squeeze(1)
 
-                depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
 
                 depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
 
