@@ -107,99 +107,75 @@ class RandomChannelDropout(nn.Module):
 
         return x * mask
 
+
+
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
-            super().__init__()
-            self.block = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(),
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(),
-            )
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.ReLU(inplace=True),
+        )
 
     def forward(self, x):
         return self.block(x)
 
-
 class Detector(nn.Module):
     def __init__(self, in_channels=3, num_classes=3):
         super().__init__()
+        self.encoder1 = ConvBlock(in_channels, 64)
+        self.encoder2 = ConvBlock(64, 128)
+        self.encoder3 = ConvBlock(128, 256)
 
-        self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
-        self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
+        self.pool = nn.MaxPool2d(2)
 
-        self.channel_dropout = RandomChannelDropout()
+        self.decoder3 = ConvBlock(256, 128)
+        self.decoder2 = ConvBlock(128, 64)
+        self.decoder1 = ConvBlock(64, 32)
 
-        self.down1 = ConvBlock(in_channels, 16)
-        self.pool1 = nn.MaxPool2d(2)
+        self.upconv2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.upconv1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
+        self.upconv0 = nn.ConvTranspose2d(64, 32, 2, stride=2)
 
-        self.down2 = ConvBlock(16, 32)
-        self.pool2 = nn.MaxPool2d(2)
+        # Segmentation head (no softmax, raw logits)
+        self.seg_head = nn.Conv2d(32, num_classes, 1)
 
-        self.down3 = ConvBlock(32, 64)
-        self.pool3 = nn.MaxPool2d(2)
-
-        self.bottom = ConvBlock(64, 128)
-
-        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.conv1 = ConvBlock(128, 64)
-
-        self.up2 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
-        self.conv2 = ConvBlock(64, 32)
-
-        self.up3 = nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2)
-        self.conv3 = ConvBlock(32, 16)
-
-        self.segmentation_head = nn.Conv2d(16, num_classes, kernel_size=1)
-        nn.init.constant_(self.segmentation_head.weight, 0.0)
-        prior = torch.tensor([0.6, 0.2, 0.2])
-        bias = -torch.log((1 - prior) / prior)
-        with torch.no_grad():
-            self.segmentation_head.bias.data.copy_(bias)
-        #nn.init.constant_(self.segmentation_head.bias, 0.0)
-        self.segmentation_head.bias.data[0] = -2.0  # Suppress background bias
-
+        # Depth head
         self.depth_head = nn.Sequential(
-            nn.Conv2d(16, 1, kernel_size=1),
-            nn.Sigmoid()
+            nn.Conv2d(32, 1, 1),
+            nn.Sigmoid(),  # normalized depth
         )
 
-    def forward(self, x: torch.Tensor):
-        x = x.to(dtype=torch.float32)
-        x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-        x = self.channel_dropout(x)
+        self._init_bias()
 
-        d1 = self.down1(x)
-        p1 = self.pool1(d1)
+    def _init_bias(self):
+        # Bias init to counteract class imbalance
+        class_counts = torch.tensor([0.94, 0.03, 0.03])  # adjust as needed
+        class_weights = torch.log(class_counts + 1e-6)
+        bias = -class_weights + class_weights.mean()
+        with torch.no_grad():
+            self.seg_head.bias.copy_(bias)
 
-        d2 = self.down2(p1)
-        p2 = self.pool2(d2)
+    def forward(self, x):
+        enc1 = self.encoder1(x)
+        enc2 = self.encoder2(self.pool(enc1))
+        enc3 = self.encoder3(self.pool(enc2))
 
-        d3 = self.down3(p2)
-        p3 = self.pool3(d3)
+        dec2 = self.upconv2(enc3)
+        dec2 = self.decoder3(dec2 + enc2)
 
-        b = self.bottom(p3)
+        dec1 = self.upconv1(dec2)
+        dec1 = self.decoder2(dec1 + enc1)
 
-        u1 = self.up1(b)
-        u1 = F.interpolate(u1, size=d3.shape[-2:], mode='bilinear', align_corners=False)
-        u1 = torch.cat([u1, d3], dim=1)
-        u1 = self.conv1(u1)
+        dec0 = self.upconv0(dec1)
+        dec0 = self.decoder1(dec0)
 
-        u2 = self.up2(u1)
-        u2 = F.interpolate(u2, size=d2.shape[-2:], mode='bilinear', align_corners=False)
-        u2 = torch.cat([u2, d2], dim=1)
-        u2 = self.conv2(u2)
+        seg_logits = self.seg_head(dec0)
+        depth_map = self.depth_head(dec0)
 
-        u3 = self.up3(u2)
-        u3 = F.interpolate(u3, size=d1.shape[-2:], mode='bilinear', align_corners=False)
-        u3 = torch.cat([u3, d1], dim=1)
-        u3 = self.conv3(u3)
-
-        logits = self.segmentation_head(u3)
-        logits = logits / 1.5  # Temperature scaling
-        raw_depth = self.depth_head(u3).squeeze(1)
-
-        return logits, raw_depth
+        return seg_logits, depth_map
 
 
 
