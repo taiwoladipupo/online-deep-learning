@@ -53,12 +53,12 @@ class CombinedLoss(nn.Module):
 
         # Suppression for background
         suppression = max(0.0, 2.0 - (self.current_epoch / self.total_epochs))
-        logits[:, 0, :, :] -= suppression * 2.0
+        logits[:, 0, :, :] -= suppression * 1.5
 
         # Encourage foreground
         boost = max(0.0, 3.0 - self.current_epoch / (self.total_epochs * 0.5))
-        logits[:, 1, :, :] +=  boost * 8.0
-        logits[:, 2, :, :] += boost * 8.0
+        logits[:, 1, :, :] +=  boost * 3.0
+        logits[:, 2, :, :] += boost * 3.0
 
         # Dynamic CE class weights
         weights = torch.tensor([1.0, 4.0, 6.0], device=logits.device)
@@ -167,9 +167,11 @@ def train(
 
         pixel_counter = Counter()
         for batch in train_data:
+
             img = batch['image'].to(device)
             label = batch['track'].to(device)
             depth_true = batch['depth'].to(device)
+            print("Unique target labels in batch:", torch.unique(label))
 
             unique, counts = torch.unique(label, return_counts=True)
             for u, c in zip(unique.tolist(), counts.tolist()):
