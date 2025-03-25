@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Union
-
+from imblearn.over_sampling import SMOTE
 import numpy as np
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
@@ -78,6 +78,12 @@ class RoadDataset(Dataset):
         return sample
 
 
+
+def oversample_minority_classes(X, y):
+    smote = SMOTE()
+    X_res, y_res = smote.fit_resample(X, y)
+    return X_res, y_res
+
 def load_data(
     dataset_path: str,
     transform_pipeline: str = "default",
@@ -85,25 +91,11 @@ def load_data(
     num_workers: int = 2,
     batch_size: int = 32,
     shuffle: bool = False,
+    oversample: bool = False
 ) -> Union[DataLoader, Dataset]:
-    """
-    Constructs the dataset/dataloader.
-    The specified transform_pipeline must be implemented in the RoadDataset class.
-
-    Args:
-        transform_pipeline (str): 'default', 'aug', or other custom transformation pipelines
-        return_dataloader (bool): returns either DataLoader or Dataset
-        num_workers (int): data workers, set to 0 for VSCode debugging
-        batch_size (int): batch size
-        shuffle (bool): should be true for train and false for val
-
-    Returns:
-        DataLoader or Dataset
-    """
     dataset_path = Path(dataset_path)
     scenes = [x for x in dataset_path.iterdir() if x.is_dir()]
 
-    # can pass in a single scene like "road_data/val/cornfield_crossing_04"
     if not scenes and dataset_path.is_dir():
         scenes = [dataset_path]
 
@@ -112,13 +104,13 @@ def load_data(
         datasets.append(RoadDataset(episode_path, transform_pipeline=transform_pipeline))
     dataset = ConcatDataset(datasets)
 
-    print(f"Loaded {len(dataset)} samples from {len(datasets)} episodes")
+    if oversample:
+        X = [sample['image'] for sample in dataset]
+        y = [sample['track'] for sample in dataset]
+        X_res, y_res = oversample_minority_classes(X, y)
+        dataset = [(X_res[i], y_res[i]) for i in range(len(X_res))]
 
-    # Print a few samples to inspect
-    for i in range(5):
-        sample = dataset[i]
-        print(f"Sample {i} - Image shape: {sample['image'].shape}, Track shape: {sample['track'].shape}, Depth shape: {sample['depth'].shape}")
-        print(f"Sample {i} - Track values: {sample['track']}")
+    print(f"Loaded {len(dataset)} samples from {len(datasets)} episodes")
 
     if not return_dataloader:
         return dataset

@@ -62,7 +62,7 @@ class CombinedLoss(nn.Module):
         self.focal_loss = FocalLoss(alpha=0.7, gamma=0.3, logits=True)
         self.dice_loss = DiceLoss()
         if class_weights is None:
-            class_weights = torch.tensor([0.01, 10.0, 10.0], dtype=torch.float32)
+            class_weights = torch.tensor([0.001, 100.0, 100.0], dtype=torch.float32)
         else:
             class_weights = torch.tensor(class_weights, dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
@@ -152,7 +152,7 @@ def compute_sample_weights(dataset):
     return sample_weights
 # Main Training Loop
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
-          batch_size=64, seed=2024, transform_pipeline="default", **kwargs):
+          batch_size=64, seed=2024, transform_pipeline="default",oversample=False, **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -192,7 +192,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    class_weights = torch.tensor([0.001, 10.0, 10.0], dtype=torch.float32).to(device)
+    class_weights = torch.tensor([0.001, 100.0, 100.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
@@ -323,5 +323,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=2024)
     parser.add_argument("--transform_pipeline", type=str, default="default")
+    parser.add_argument("--oversample", action="store_true", help="Enable oversampling of minority classes")
     args = parser.parse_args()
     train(**vars(args))
