@@ -75,7 +75,7 @@ class CombinedLoss(nn.Module):
         self.dice_loss = DiceLoss()
         # Use the provided class weights (1.0, 80.0, 100.0) by default.
         if class_weights is None:
-            class_weights = torch.tensor([1.0, 80.0, 100.0], dtype=torch.float32)
+            class_weights = torch.tensor([1.0, 100.0, 140.0], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
@@ -320,8 +320,8 @@ def normalize_logits(logits):
     return normalized_logits
 
 # Main Training Loop with Hard Example Mining and WeightedRandomSampler
-def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
-          batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
+def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-5,
+          batch_size=32, seed=2024, transform_pipeline="default", **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
     np.random.seed(seed)
