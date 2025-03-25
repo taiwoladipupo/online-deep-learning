@@ -177,7 +177,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         f"Sample data shape: {next(iter(val_data))['image'].shape}, {next(iter(val_data))['track'].shape}, {next(iter(val_data))['depth'].shape}")
 
 
-model = load_model(model_name, **kwargs).to(device)
+    model = load_model(model_name, **kwargs).to(device)
 
     class_weights = torch.tensor([1.0, 2.0, 2.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
