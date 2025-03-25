@@ -125,7 +125,7 @@ class CombinedLoss(nn.Module):
         self.use_focal_loss = use_focal_loss
 
         if self.use_focal_loss:
-            self.seg_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.33)
+            self.seg_loss = FocalTverskyLoss(alpha=0.7, beta=0.3, gamma=1.33)
         else:
             # Alternatively, you can define a plain TverskyLoss if desired.
             # For now, we use FocalTverskyLoss as default.
