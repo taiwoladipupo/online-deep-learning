@@ -167,14 +167,17 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     # Debugging: Print track values for a few samples from the validation dataset
     print("Validation dataset track values:")
-    for i in range(5):
-        print(f"Sample {i} track value: {val_data[i]['track']}")
+    for i, sample in enumerate(val_data):
+        if i >= 5:
+            break
+        print(f"Sample {i} track value: {sample['track']}")
 
     print(f"Loaded {len(val_data)} validation samples.")
     print(
-        f"Sample data shape: {val_data[0]['image'].shape}, {val_data[0]['track'].shape}, {val_data[0]['depth'].shape}")
+        f"Sample data shape: {next(iter(val_data))['image'].shape}, {next(iter(val_data))['track'].shape}, {next(iter(val_data))['depth'].shape}")
 
-    model = load_model(model_name, **kwargs).to(device)
+
+model = load_model(model_name, **kwargs).to(device)
 
     class_weights = torch.tensor([1.0, 2.0, 2.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
