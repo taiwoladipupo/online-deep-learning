@@ -142,6 +142,21 @@ class LovaszCrossEntropyCombinedLoss(nn.Module):
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
+def compute_sample_weights(dataset):
+    """
+    Computes a weight for each sample based on the inverse frequency of rare-class pixels.
+    Rare-class pixels are those with label 1 or 2.
+    """
+    weights = []
+    for i in range(len(dataset)):
+        mask = torch.tensor(dataset[i]["track"]).float()  # (H, W)
+        total_pixels = mask.numel()
+        rare_pixels = ((mask == 1) | (mask == 2)).float().sum().item()
+        rare_ratio = rare_pixels / total_pixels
+        weight = 1.0 / (rare_ratio + 1e-6)
+        weights.append(weight)
+    return weights
+
 
 #############################
 # Data Augmentation Transforms
