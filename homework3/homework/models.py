@@ -126,66 +126,82 @@ class ConvBlock(nn.Module):
 class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
-        Detector model using MobileNetV3-Small as the encoder.
-        Assumes input images are (B, 3, 192, 256) with values in [0, 1].
+        Detector model using MobileNetV3-Small as a shared encoder and decoder.
+        Then branches into separate heads for segmentation and depth prediction.
+
+        Assumes input images are (B, 3, 192, 256) with values in [0,1].
         Outputs:
-         - Segmentation logits: (B, num_classes, 96, 128)
-         - Depth map: (B, 96, 128)
+          - Segmentation logits: (B, num_classes, 96, 128)
+          - Depth map: (B, 96, 128) with values in (0,1)
         """
         super(Detector, self).__init__()
+        # Load MobileNetV3-Small pretrained on ImageNet.
         mobilenet = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
-        self.encoder = mobilenet.features  # Expected output: (B,576, ~6, ~8) for input (192,256)
+        self.encoder = mobilenet.features
+        # For input (192,256), the encoder outputs roughly (B,576, ~6, ~8).
 
-        # Decoder: Upsample gradually from (B,576,6,8) to (B,16,96,128)
+        # Decoder: a simple upsampling pipeline to produce a shared feature map.
         self.decoder = nn.Sequential(
             nn.Conv2d(576, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,128,12,16)
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,128,12,16)
             nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,64,24,32)
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,64,24,32)
             nn.Conv2d(64, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,32,48,64)
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,32,48,64)
             nn.Conv2d(32, 16, kernel_size=3, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # (B,16,96,128)
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,16,96,128)
             nn.Conv2d(16, 16, kernel_size=3, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True)
         )
 
+        # Separate heads:
+        # Segmentation head produces class logits.
         self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)
-        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
+        # Depth head produces a single channel output, then applies Sigmoid to constrain to (0,1).
+        self.depth_head = nn.Sequential(
+            nn.Conv2d(16, 1, kernel_size=1),
+            nn.Sigmoid()
+        )
 
     def forward(self, x):
-        features = self.encoder(x)  # (B,576, ~6, ~8)
-        up = self.decoder(features)  # (B,16,96,128)
-        seg_logits = self.seg_head(up)  # (B,num_classes,96,128)
-        depth = self.depth_head(up)  # (B,1,96,128)
-        depth = depth.squeeze(1)  # (B,96,128)
+        # Debug print: input shape
+        # print("Input shape:", x.shape)
+        features = self.encoder(x)
+        # print("Encoder output shape:", features.shape)
+        shared_features = self.decoder(features)
+        # Debug: print shared features shape
+        # print("Shared decoder output shape:", shared_features.shape)
+        seg_logits = self.seg_head(shared_features)  # (B, num_classes, 96,128)
+        depth = self.depth_head(shared_features).squeeze(1)  # (B,96,128)
         return seg_logits, depth
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Used for inference, takes an image and returns class labels and normalized depth.
+
         Args:
             x (torch.FloatTensor): image with shape (B, 3, h, w) and values in [0, 1]
+
         Returns:
-            tuple (pred, depth):
+            tuple:
               - pred: class labels {0, 1, 2} with shape (B, h, w)
               - depth: normalized depth [0, 1] with shape (B, h, w)
         """
         logits, raw_depth = self(x)
+        # Print shapes for debugging
+        # print("Logits shape:", logits.shape, "Raw depth shape:", raw_depth.shape)
         pred = logits.argmax(dim=1)
-        # IMPORTANT: Adjust depth size to match ground truth expected resolution.
-        # Here we assume the ground truth depth has size (96, 64) (height, width),
-        # so we downsample the predicted depth from (96,128) to (96,64).
-        depth = F.interpolate(raw_depth.unsqueeze(1), size=(96, 64), mode='bilinear', align_corners=False).squeeze(1)
+        # Optionally, post-process depth if needed; here raw_depth is already scaled via Sigmoid.
+        depth = raw_depth
         return pred, depth
 
 MODEL_FACTORY = {
