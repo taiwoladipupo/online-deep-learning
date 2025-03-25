@@ -133,8 +133,13 @@ def compute_sample_weights(dataset):
     # Compute class weights
     class_weights = total_samples / (len(class_counts) * class_counts)
 
+    # Normalize class weights to avoid large values
+    class_weights = class_weights / class_weights.sum()
+
     # Compute sample weights
     sample_weights = [class_weights[int(item)] for sample in dataset for item in sample['track'].flatten()]
+
+    return sample_weights
 
     return sample_weights
 # Main Training Loop
