@@ -145,10 +145,6 @@ def hard_example_mining(logits, labels, ratio=0.7):
         if num_hard == 0:
             return torch.arange(loss.numel()).to(logits.device)
 
-        # Ensure num_hard is not zero
-        if num_hard == 0:
-            num_hard = 1
-
         _, hard_indices = torch.topk(loss, num_hard)
     return hard_indices.to(logits.device)
 def compute_sample_weights(dataset):
