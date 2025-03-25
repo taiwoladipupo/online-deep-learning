@@ -305,7 +305,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
     model = load_model(model_name, **kwargs).to(device)
 
     # Calculate class weights for the loss function.
-    class_weights = torch.tensor([1.0, 100.0, 100.0], dtype=torch.float32).to(device)
+    class_weights = calculate_class_weights(train_data).to(device)
+
     loss_func = CombinedLoss(
         device=device,
         total_epochs=num_epoch,
@@ -342,8 +343,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                            align_corners=False).squeeze(1)
-
-            loss = loss_func(logits, label, depth_pred, depth_true)
+            temperature = 0.5
+            scaled_logits = logits / temperature
+            loss = loss_func(scaled_logits, label, depth_pred, depth_true)
+            print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
+            print("Logit min, max:", logits.min(), logits.max())
 
             optimizer.zero_grad()
             loss.backward()
