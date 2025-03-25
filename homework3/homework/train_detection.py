@@ -246,7 +246,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
     logger = tb.SummaryWriter(log_dir)
 
     # Load training dataset as a Dataset object (batch_size=1) to compute sample weights.
-    train_dataset = load_data("drive_data/train", transform_pipeline="aug", shuffle=False, batch_size=1, num_workers=2)
+    train_dataset = load_data("drive_data/train", transform_pipeline="aug", return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
     train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
