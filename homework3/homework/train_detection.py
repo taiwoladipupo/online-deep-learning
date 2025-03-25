@@ -21,83 +21,44 @@ from .datasets.road_dataset import load_data
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-
-#############################
 # Loss Functions
-#############################
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, logits=False, reduce=True):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.logits = logits
+        self.reduce = reduce
 
-def lovasz_grad(gt_sorted):
-    gts = gt_sorted.sum()
-    if gts == 0:
-        return torch.zeros_like(gt_sorted)
-    grad = (gts - gt_sorted.cumsum(0)) / gts
-    return grad
+    def forward(self, inputs, targets):
+        if self.logits:
+            BCE_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        else:
+            BCE_loss = nn.functional.binary_cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-BCE_loss)
+        F_loss = self.alpha * (1-pt)**self.gamma * BCE_loss
 
+        if self.reduce:
+            return torch.mean(F_loss)
+        else:
+            return F_loss
 
-def lovasz_softmax_flat(probas, labels):
-    losses = []
-    C = probas.size(1)
-    for c in range(C):
-        fg = (labels == c).float()  # foreground for class c
-        if fg.sum() == 0:
-            continue
-        class_pred = probas[:, c]
-        errors = (fg - class_pred).abs()
-        errors_sorted, perm = torch.sort(errors, descending=True)
-        fg_sorted = fg[perm]
-        grad = lovasz_grad(fg_sorted)
-        losses.append(torch.dot(errors_sorted, grad))
-    if losses:
-        return torch.mean(torch.stack(losses))
-    return torch.tensor(0.0, device=probas.device)
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=1):
+        super(DiceLoss, self).__init__()
+        self.smooth = smooth
 
+    def forward(self, inputs, targets):
+        inputs = torch.sigmoid(inputs)
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+        intersection = (inputs * targets).sum()
+        dice = (2. * intersection + self.smooth) / (inputs.sum() + targets.sum() + self.smooth)
+        return 1 - dice
 
-class LovaszSoftmaxLoss(nn.Module):
-    def __init__(self, per_image=True, ignore=None):
-        super(LovaszSoftmaxLoss, self).__init__()
-        self.per_image = per_image
-        self.ignore = ignore
-
-    def forward(self, logits, labels):
-        probas = torch.softmax(logits, dim=1)
-        loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
-        return loss
-
-
-class WeightedLovaszSoftmaxLoss(nn.Module):
-    def __init__(self, per_image=True, ignore=None, class_weights=None):
-        super(WeightedLovaszSoftmaxLoss, self).__init__()
-        self.per_image = per_image
-        self.ignore = ignore
-        self.class_weights = class_weights  # Expecting a tensor
-
-    def forward(self, logits, labels):
-        probas = torch.softmax(logits, dim=1)
-        loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
-        if self.class_weights is not None:
-            # Ensure weights are on the same device as labels.
-            weights = self.class_weights.to(labels.device)[labels.view(-1)]
-            loss = loss * weights
-        return loss.mean()
-
-
-class LovaszCrossEntropyCombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=0.6,
-                 class_weights=None):
-        """
-        Combined loss for segmentation and optional depth regression.
-        Segmentation loss is a blend of Lovász-Softmax loss and weighted cross-entropy loss.
-
-        Args:
-            device (torch.device): Device to run the loss on.
-            total_epochs (int): Total training epochs.
-            seg_loss_weight (float): Weight for segmentation loss.
-            depth_loss_weight (float): Weight for depth regression loss.
-            ce_weight (float): Weight for the cross-entropy component (0 to 1). Lovász loss contributes with weight (1 - ce_weight).
-            class_weights (Tensor, optional): Class weights for cross-entropy.
-                If None, defaults to [1.0, 20.0, 20.0].
-        """
-        super(LovaszCrossEntropyCombinedLoss, self).__init__()
+class CombinedLoss(nn.Module):
+    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=0.6, class_weights=None):
+        super(CombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
         self.seg_loss_weight = seg_loss_weight
@@ -105,6 +66,8 @@ class LovaszCrossEntropyCombinedLoss(nn.Module):
         self.ce_weight = ce_weight
 
         self.lovasz_loss = LovaszSoftmaxLoss()
+        self.focal_loss = FocalLoss(logits=True)
+        self.dice_loss = DiceLoss()
         if class_weights is None:
             class_weights = torch.tensor([1.0, 20.0, 20.0], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
@@ -121,35 +84,30 @@ class LovaszCrossEntropyCombinedLoss(nn.Module):
         target = target.to(device)
         depth_true = depth_true.to(device)
 
-        # Resize logits if needed
         if logits.shape[2:] != target.shape[1:]:
-            logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
+            logits = nn.functional.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
         lovasz_loss_val = self.lovasz_loss(logits, target)
         ce_loss_val = self.ce_loss(logits, target)
+        focal_loss_val = self.focal_loss(logits, target)
+        dice_loss_val = self.dice_loss(logits, target)
 
-        seg_loss_val = (1 - self.ce_weight) * lovasz_loss_val + self.ce_weight * ce_loss_val
+        seg_loss_val = (1 - self.ce_weight) * (lovasz_loss_val + focal_loss_val + dice_loss_val) + self.ce_weight * ce_loss_val
 
-        # Process depth predictions
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
             depth_true = depth_true.squeeze(1)
         if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
-                                       align_corners=False).squeeze(1)
+            depth_pred = nn.functional.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 def compute_sample_weights(dataset):
-    """
-    Computes a weight for each sample based on the inverse frequency of rare-class pixels.
-    Rare-class pixels are those with label 1 or 2.
-    """
     weights = []
     for i in range(len(dataset)):
-        mask = torch.tensor(dataset[i]["track"]).float()  # (H, W)
+        mask = torch.tensor(dataset[i]["track"]).float()
         total_pixels = mask.numel()
         rare_pixels = ((mask == 1) | (mask == 2)).float().sum().item()
         rare_ratio = rare_pixels / total_pixels
@@ -157,11 +115,55 @@ def compute_sample_weights(dataset):
         weights.append(weight)
     return weights
 
+class LovaszSoftmaxLoss(nn.Module):
+    def __init__(self):
+        super(LovaszSoftmaxLoss, self).__init__()
 
-#############################
+    def forward(self, logits, labels):
+        """
+        Args:
+            logits: [B, C, H, W] Variable, logits at each pixel (between -\infty and +\infty)
+            labels: [B, H, W] Tensor, ground truth labels (between 0 and C - 1)
+        """
+        logits = logits.permute(0, 2, 3, 1).contiguous()
+        labels = labels.view(-1)
+        logits = logits.view(-1, logits.size(-1))
+        return self.lovasz_softmax_flat(logits, labels)
+
+    def lovasz_softmax_flat(self, logits, labels):
+        """
+        Multi-class Lovasz-Softmax loss
+        Args:
+            logits: [P, C] Variable, logits at each prediction (between -\infty and +\infty)
+            labels: [P] Tensor, ground truth labels (between 0 and C - 1)
+        """
+        C = logits.size(1)
+        losses = []
+        for c in range(C):
+            fg = (labels == c).float()
+            if fg.sum() == 0:
+                continue
+            errors = (fg - logits[:, c]).abs()
+            errors_sorted, perm = torch.sort(errors, 0, descending=True)
+            perm = perm.data
+            fg_sorted = fg[perm]
+            losses.append(torch.dot(errors_sorted, self.lovasz_grad(fg_sorted)))
+        return sum(losses) / len(losses)
+
+    @staticmethod
+    def lovasz_grad(gt_sorted):
+        """
+        Computes gradient of the Lovasz extension w.r.t sorted errors
+        See Alg. 1 in paper
+        """
+        gts = gt_sorted.sum()
+        intersection = gts - gt_sorted.float().cumsum(0)
+        union = gts + (1 - gt_sorted).float().cumsum(0)
+        jaccard = 1. - intersection / union
+        if gt_sorted.numel() > 1:  # cover case when gt_sorted is empty
+            jaccard[1:] = jaccard[1:] - jaccard[:-1]
+        return jaccard
 # Data Augmentation Transforms
-#############################
-
 def get_train_transforms():
     return T.Compose([
         T.Resize((192, 256)),
@@ -173,7 +175,6 @@ def get_train_transforms():
                     std=[0.229, 0.224, 0.225])
     ])
 
-
 def get_val_transforms():
     return T.Compose([
         T.Resize((192, 256)),
@@ -182,11 +183,7 @@ def get_val_transforms():
                     std=[0.229, 0.224, 0.225])
     ])
 
-
-#############################
 # Visualization and Histogram
-#############################
-
 def visualize_sample(data_loader, num_samples=1):
     for i, batch in enumerate(data_loader):
         image = batch["image"][0].permute(1, 2, 0).cpu().numpy()
@@ -203,7 +200,6 @@ def visualize_sample(data_loader, num_samples=1):
         if i + 1 >= num_samples:
             break
 
-
 def print_label_histogram(data_loader):
     all_labels = []
     for batch in data_loader:
@@ -214,11 +210,7 @@ def print_label_histogram(data_loader):
     distribution = dict(zip(unique, counts))
     print("Overall label distribution:", distribution)
 
-
-#############################
 # Warmup Scheduler and Helpers
-#############################
-
 class WarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, total_steps, last_epoch=-1):
         self.warmup_steps = warmup_steps
@@ -232,19 +224,16 @@ class WarmupScheduler(_LRScheduler):
             return [base_lr * (self.total_steps - self.last_epoch) / (self.total_steps - self.warmup_steps) for base_lr
                     in self.base_lrs]
 
-
 def warmup_scheduler_fn(optimizer, warmup_epochs=3):
     def lr_lambda(epoch):
         return float(epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-
 def match_shape(pred, target):
     if pred.shape[2:] != target.shape[1:]:
         pred = F.interpolate(pred, size=target.shape[1:], mode='bilinear', align_corners=False)
     return pred
-
 
 def calculate_class_weights(data_loader):
     all_labels = []
@@ -259,11 +248,7 @@ def calculate_class_weights(data_loader):
     weight_dict = {cls: w for cls, w in zip(unique, class_weights)}
     return torch.tensor([weight_dict.get(i, 1.0) for i in range(3)], dtype=torch.float32)
 
-
-#############################
 # Prediction Function for Inference
-#############################
-
 def predict(model, image_path, device):
     transform = T.Compose([
         T.Resize((192, 256)),
@@ -296,11 +281,7 @@ def predict(model, image_path, device):
     plt.show()
     return pred_mask, depth_pred
 
-
-#############################
 # Main Training Loop with WeightedRandomSampler and Extended Training
-#############################
-
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowered lr to 1e-4
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -328,7 +309,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
 
     # Calculate class weights for the loss function.
     class_weights = torch.tensor([1.0, 20.0, 20.0], dtype=torch.float32).to(device)
-    loss_func = LovaszCrossEntropyCombinedLoss(
+    loss_func = CombinedLoss(
         device=device,
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
@@ -438,7 +419,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
     save_model(model)
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
