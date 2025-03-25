@@ -70,7 +70,7 @@ class CombinedLoss(nn.Module):
         self.focal_loss = FocalLoss(logits=True)
         self.dice_loss = DiceLoss()
         if class_weights is None:
-            class_weights = torch.tensor([1.0, 30.0, 30.0], dtype=torch.float32)
+            class_weights = torch.tensor([1.0, 80.0, 100.0], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
@@ -359,7 +359,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
 
             # Print original softmax statistics
             probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
-            print("Original softmax means:", probs_orig)
+            # print("Original softmax means:", probs_orig)
             # Squeeze if needed:
             if label.ndim == 4 and label.shape[1] == 1:
                 label = label.squeeze(1)
