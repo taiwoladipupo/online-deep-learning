@@ -149,21 +149,30 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
+
+    # Debugging: Print track values for a few samples from the training dataset
+    print("Training dataset track values:")
+    for i in range(5):
+        print(f"Sample {i} track value: {train_dataset[i]['track']}")
+
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
     train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
     print(f"Loaded {len(train_dataset)} training samples.")
-    print(f"Sample data shape: {train_dataset[0]['image'].shape}, {train_dataset[0]['track'].shape}, {train_dataset[0]['depth'].shape}")
-
+    print(
+        f"Sample data shape: {train_dataset[0]['image'].shape}, {train_dataset[0]['track'].shape}, {train_dataset[0]['depth'].shape}")
 
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
+
+    # Debugging: Print track values for a few samples from the validation dataset
+    print("Validation dataset track values:")
+    for i in range(5):
+        print(f"Sample {i} track value: {val_data[i]['track']}")
 
     print(f"Loaded {len(val_data)} validation samples.")
     print(
         f"Sample data shape: {val_data[0]['image'].shape}, {val_data[0]['track'].shape}, {val_data[0]['depth'].shape}")
-
-    # print("Verifying training labels...")
 
     model = load_model(model_name, **kwargs).to(device)
 
@@ -207,7 +216,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             if scaled_logits.shape[2:] != label.shape[1:]:
                 scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-                depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
+                depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
+                                           align_corners=False).squeeze(1)
 
             loss = loss_func(scaled_logits, label, depth_pred, depth_true)
             optimizer.zero_grad()
@@ -235,9 +245,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
                 temperature = 1.5
                 scaled_logits = normalized_logits / temperature
                 if scaled_logits.shape[2:] != label.shape[1:]:
-                    scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
+                    scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear',
+                                                  align_corners=False)
                 if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-                    depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
+                    depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
+                                               align_corners=False).squeeze(1)
 
                 loss = loss_func(scaled_logits, label, depth_pred, depth_true)
                 epoch_val_losses.append(loss.item())
@@ -249,7 +261,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             avg_probs = F.softmax(logits, dim=1).mean(dim=(0, 2, 3))
             pred_classes = logits.argmax(dim=1)
             total = pred_classes.numel()
-            pred_dist = {int(k): f"{(v / total) * 100:.2f}%" for k, v in zip(*torch.unique(pred_classes, return_counts=True))}
+            pred_dist = {int(k): f"{(v / total) * 100:.2f}%" for k, v in
+                         zip(*torch.unique(pred_classes, return_counts=True))}
 
             print(f"\nEpoch {epoch + 1}/{num_epoch}")
             print("Average class probabilities:", avg_probs)
@@ -262,7 +275,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             print("mIoU:", miou["iou"])
             print("mean_depth_mae:", mean_depth_mae)
             for i, iou in enumerate(np.diag(confusion_matrix.matrix) /
-                                    (confusion_matrix.matrix.sum(1) + confusion_matrix.matrix.sum(0) - np.diag(confusion_matrix.matrix) + 1e-6)):
+                                    (confusion_matrix.matrix.sum(1) + confusion_matrix.matrix.sum(0) - np.diag(
+                                        confusion_matrix.matrix) + 1e-6)):
                 print(f"Class {i} IoU: {iou:.3f}")
 
             if miou["iou"] > best_miou:
@@ -274,7 +288,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             logger.add_scalar("val/seg_accuracy", miou["accuracy"], epoch)
             logger.add_scalar("val/depth_mae", mean_depth_mae, epoch)
 
-            print(f"Epoch {epoch + 1:2d}/{num_epoch:2d} - Train loss: {np.mean(epoch_train_losses):.4f}, Val loss: {np.mean(epoch_val_losses):.4f}")
+            print(
+                f"Epoch {epoch + 1:2d}/{num_epoch:2d} - Train loss: {np.mean(epoch_train_losses):.4f}, Val loss: {np.mean(epoch_val_losses):.4f}")
 
         scheduler.step(np.mean(epoch_val_losses))
 
