@@ -127,7 +127,7 @@ def compute_sample_weights(data_loader):
     """
     weights = []
     for batch in data_loader:
-        mask =torch.tesnsor(batch["track"]).float()  # (H, W)
+        mask = torch.tensor(batch["track"]).float()  # (H, W)
         total_pixels = mask.numel()
         rare_pixels = ((mask == 1) | (mask == 2)).float().sum().item()
         rare_ratio = rare_pixels / total_pixels
