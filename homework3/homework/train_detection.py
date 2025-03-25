@@ -226,7 +226,7 @@ from pathlib import Path
 from datetime import datetime
 import numpy as np
 
-def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
+def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=1e-3,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
