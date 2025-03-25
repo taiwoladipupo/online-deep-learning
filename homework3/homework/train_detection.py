@@ -66,29 +66,19 @@ class LovaszSoftmaxLoss(nn.Module):
         loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
         return loss
 
-###############################################
+
 # Combined Loss using Lovász-Softmax for Segmentation
-###############################################
+
 
 class LovaszCombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0):
-        """
-        Combined loss for segmentation and optional depth regression.
-        Uses Lovász-Softmax loss for segmentation and L1 loss for depth.
-
-        Args:
-            device (torch.device): Device to run the loss on.
-            total_epochs (int): Total training epochs (extended to 100 by default).
-            seg_loss_weight (float): Weight for segmentation loss.
-            depth_loss_weight (float): Weight for depth regression loss.
-        """
+    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, class_weights=None):
         super(LovaszCombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
 
-        self.seg_loss = LovaszSoftmaxLoss()
+        self.seg_loss = WeightedLovaszSoftmaxLoss(class_weights=class_weights)
         self.depth_loss = nn.L1Loss()
 
         if device:
@@ -102,13 +92,11 @@ class LovaszCombinedLoss(nn.Module):
         target = target.to(device)
         depth_true = depth_true.to(device)
 
-        # Resize logits to match target spatial dimensions
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
         seg_loss_val = self.seg_loss(logits, target)
 
-        # Process depth predictions
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
@@ -118,8 +106,6 @@ class LovaszCombinedLoss(nn.Module):
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
-
-
 def compute_sample_weights(data_loader):
     """
     Computes a weight for each sample based on the inverse frequency of rare-class pixels.
@@ -167,6 +153,21 @@ def print_label_histogram(data_loader):
     unique, counts = np.unique(all_labels, return_counts=True)
     distribution = dict(zip(unique, counts))
     print("Overall label distribution:", distribution)
+
+class WeightedLovaszSoftmaxLoss(nn.Module):
+    def __init__(self, per_image=True, ignore=None, class_weights=None):
+        super(WeightedLovaszSoftmaxLoss, self).__init__()
+        self.per_image = per_image
+        self.ignore = ignore
+        self.class_weights = class_weights
+
+    def forward(self, logits, labels):
+        probas = torch.softmax(logits, dim=1)
+        loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
+        if self.class_weights is not None:
+            weights = self.class_weights[labels.view(-1)]
+            loss = loss * weights
+        return loss.mean()
 
 ###############################################
 # Warmup Scheduler (LambdaLR)
@@ -234,7 +235,32 @@ def predict(model, image_path, device):
     plt.show()
     return pred_mask, depth_pred
 
+class WeightedLovaszSoftmaxLoss(nn.Module):
+    def __init__(self, per_image=True, ignore=None, class_weights=None):
+        super(WeightedLovaszSoftmaxLoss, self).__init__()
+        self.per_image = per_image
+        self.ignore = ignore
+        self.class_weights = class_weights
 
+    def forward(self, logits, labels):
+        probas = torch.softmax(logits, dim=1)
+        loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
+        if self.class_weights is not None:
+            weights = self.class_weights[labels.view(-1)]
+            loss = loss * weights
+        return loss.mean()
+
+def compute_class_weights(data_loader):
+    all_labels = []
+    for batch in data_loader:
+        labels = batch["track"].view(-1)
+        all_labels.extend(labels.cpu().numpy())
+    all_labels = np.array(all_labels)
+    unique, counts = np.unique(all_labels, return_counts=True)
+    class_weights = {cls: 1.0 / count for cls, count in zip(unique, counts)}
+    max_weight = max(class_weights.values())
+    class_weights = {cls: weight / max_weight for cls, weight in class_weights.items()}
+    return torch.tensor([class_weights[cls] for cls in range(len(class_weights))], dtype=torch.float32)
 
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
@@ -259,11 +285,14 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
     print_label_histogram(train_data)
 
     model = load_model(model_name, **kwargs).to(device)
+
+    class_weights = compute_class_weights(train_data)
     loss_func = LovaszCombinedLoss(
         device=device,
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
-        depth_loss_weight=0.0
+        depth_loss_weight=0.0,
+        class_weights=class_weights,
     )
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
