@@ -89,7 +89,7 @@ class WeightedLovaszSoftmaxLoss(nn.Module):
         probas = torch.softmax(logits, dim=1)
         loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
         if self.class_weights is not None:
-            # FIX: Use self.class_weights (plural) instead of self.class_weight.
+            # Ensure weights are on the same device as labels.
             weights = self.class_weights.to(labels.device)[labels.view(-1)]
             loss = loss * weights
         return loss.mean()
@@ -100,6 +100,13 @@ class LovaszCombinedLoss(nn.Module):
         """
         Combined loss for segmentation and optional depth regression.
         Uses Lovász-Softmax loss for segmentation and L1 loss for depth.
+
+        Args:
+            device (torch.device): Device to run the loss on.
+            total_epochs (int): Total training epochs.
+            seg_loss_weight (float): Weight for segmentation loss.
+            depth_loss_weight (float): Weight for depth regression loss.
+            class_weights: Tensor of class weights (if provided, used in weighted Lovász loss).
         """
         super(LovaszCombinedLoss, self).__init__()
         self.total_epochs = total_epochs
@@ -107,7 +114,6 @@ class LovaszCombinedLoss(nn.Module):
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
 
-        # Use the weighted version if class_weights are provided, else normal Lovász loss.
         if class_weights is not None:
             self.seg_loss = WeightedLovaszSoftmaxLoss(class_weights=class_weights)
         else:
@@ -125,7 +131,7 @@ class LovaszCombinedLoss(nn.Module):
         target = target.to(device)
         depth_true = depth_true.to(device)
 
-        # Resize logits to match target spatial dimensions
+        # Resize logits if needed
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
@@ -224,6 +230,7 @@ def match_shape(pred, target):
 def calculate_class_weights(data_loader):
     """
     Calculate class weights based on the inverse frequency of each class in the dataset.
+    Uses median frequency balancing to avoid extremely low background weights.
     """
     all_labels = []
     for batch in data_loader:
@@ -231,9 +238,13 @@ def calculate_class_weights(data_loader):
         all_labels.extend(labels.cpu().numpy())
     all_labels = np.array(all_labels)
     unique, counts = np.unique(all_labels, return_counts=True)
-    total_counts = np.sum(counts)
-    class_weights = total_counts / (len(unique) * counts)
-    return torch.tensor(class_weights, dtype=torch.float32)
+    freq = counts / np.sum(counts)
+    median_freq = np.median(freq)
+    class_weights = median_freq / freq
+    # Ensure weights are ordered by class index 0,1,2.
+    weight_dict = {cls: w for cls, w in zip(unique, class_weights)}
+    # For any missing class, set weight to 1.0
+    return torch.tensor([weight_dict.get(i, 1.0) for i in range(3)], dtype=torch.float32)
 
 
 def predict(model, image_path, device):
@@ -282,7 +293,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
 
-    # Load training dataset as a Dataset object to compute sample weights.
+    # Load training dataset as a Dataset object (batch_size=1) to compute sample weights.
     train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
@@ -298,7 +309,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    # Calculate class weights for loss function if needed.
+    # Calculate class weights for the loss function.
     class_weights = calculate_class_weights(train_data)
     loss_func = LovaszCombinedLoss(
         device=device,
