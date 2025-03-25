@@ -121,18 +121,22 @@ def get_val_transforms():
                     std=[0.229, 0.224, 0.225])
     ])
 
+
 def compute_sample_weights(dataset):
-    # Debugging: Print the first few samples to understand the structure
-    for i in range(5):
-        print(f"Sample {i} track value: {dataset[i]['track']}")
+    # Flatten the 'track' arrays and convert to integers
+    flattened_tracks = [int(item) for sample in dataset for item in sample['track'].flatten()]
 
-    # Ensure 'track' is converted to an integer
-    class_counts = np.bincount([int(sample['track'].item()) for sample in dataset])
-    total_samples = len(dataset)
+    # Compute class counts
+    class_counts = np.bincount(flattened_tracks)
+    total_samples = len(flattened_tracks)
+
+    # Compute class weights
     class_weights = total_samples / (len(class_counts) * class_counts)
-    sample_weights = [class_weights[int(sample['track'].item())] for sample in dataset]
-    return sample_weights
 
+    # Compute sample weights
+    sample_weights = [class_weights[int(item)] for sample in dataset for item in sample['track'].flatten()]
+
+    return sample_weights
 # Main Training Loop
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
           batch_size=64, seed=2024, transform_pipeline="default", **kwargs):
