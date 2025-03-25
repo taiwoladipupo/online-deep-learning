@@ -284,6 +284,13 @@ def predict(model, image_path, device):
     plt.show()
     return pred_mask, depth_pred
 
+
+def normalize_logits(logits):
+    mean = logits.mean(dim=(0, 2, 3), keepdim=True)
+    std = logits.std(dim=(0, 2, 3), keepdim=True)
+    normalized_logits = (logits - mean) / (std + 1e-6)
+    return normalized_logits
+
 # Main Training Loop with WeightedRandomSampler and Extended Training
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowered lr to 1e-4
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
@@ -340,6 +347,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             depth_true = batch["depth"].to(device)
 
             logits, depth_pred = model(img)
+            normalized_logits = normalize_logits(logits)
 
             # Print original softmax statistics
             probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
@@ -349,7 +357,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
                 label = label.squeeze(1)
 
             temperature = 2.0
-            scaled_logits = logits / temperature
+            scaled_logits = normalized_logits / temperature
             # Ensure spatial dimensions match:
             if scaled_logits.shape[2:] != label.shape[1:]:
                 scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
@@ -385,13 +393,16 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
 
                 logits, depth_pred = model(img)
 
+                # Normalize logits
+                normalized_logits = normalize_logits(logits)
+
                 # Print original softmax statistics
                 probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
                 print("Original softmax means:", probs_orig)
 
                 # Apply temperature scaling
                 temperature = 2.0
-                scaled_logits = logits / temperature
+                scaled_logits = normalized_logits / temperature
                 probs_scaled = torch.softmax(scaled_logits, dim=1).mean(dim=(0, 2, 3))
                 print("Scaled softmax means:", probs_scaled)
 
