@@ -247,7 +247,7 @@ class WeightedLovaszSoftmaxLoss(nn.Module):
         probas = torch.softmax(logits, dim=1)
         loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
         if self.class_weights is not None:
-            weights = self.class_weights[labels.view(-1)]
+            weights = self.class_weight.to(labels.device)[labels.view(-1)]
             loss = loss * weights
         return loss.mean()
 
