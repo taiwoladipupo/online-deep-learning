@@ -374,8 +374,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
                                            align_corners=False).squeeze(1)
 
             loss = loss_func(scaled_logits, label, depth_pred, depth_true)
-            print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
-            print("Logit min, max:", logits.min(), logits.max())
+            # print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
+            # print("Logit min, max:", logits.min(), logits.max())
 
             optimizer.zero_grad()
             loss.backward()
