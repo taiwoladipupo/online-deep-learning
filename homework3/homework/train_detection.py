@@ -120,15 +120,14 @@ class LovaszCombinedLoss(nn.Module):
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 
-def compute_sample_weights(dataset):
+def compute_sample_weights(data_loader):
     """
     Computes a weight for each sample based on the inverse frequency of rare-class pixels.
     Rare-class pixels are those with label 1 or 2.
     """
     weights = []
-    for i in range(len(dataset)):
-        sample = dataset[i]
-        mask = sample["track"].float()  # (H, W)
+    for batch in data_loader:
+        mask = batch["track"].float()  # (H, W)
         total_pixels = mask.numel()
         rare_pixels = ((mask == 1) | (mask == 2)).float().sum().item()
         rare_ratio = rare_pixels / total_pixels
