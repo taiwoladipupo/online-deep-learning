@@ -57,19 +57,20 @@ class DiceLoss(nn.Module):
         return 1 - dice
 
 class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=0.6, class_weights=None):
+    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=0.6, dice_weight=0.0, class_weights=None):
         super(CombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
         self.ce_weight = ce_weight
+        self.dice_weight = dice_weight
 
         self.lovasz_loss = LovaszSoftmaxLoss()
         self.focal_loss = FocalLoss(logits=True)
         self.dice_loss = DiceLoss()
         if class_weights is None:
-            class_weights = torch.tensor([1.0, 20.0, 20.0], dtype=torch.float32)
+            class_weights = torch.tensor([1.0, 30.0, 30.0], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
@@ -90,6 +91,12 @@ class CombinedLoss(nn.Module):
         lovasz_loss_val = self.lovasz_loss(logits, target)
         ce_loss_val = self.ce_loss(logits, target)
         seg_loss_val = (1 - self.ce_weight) * lovasz_loss_val + self.ce_weight * ce_loss_val
+
+        # Optionally mix in Dice loss if dice_weight > 0
+        if self.dice_weight > 0:
+            dice_loss_val = self.dice_loss(logits,
+                                           F.one_hot(target, num_classes=logits.size(1)).permute(0, 3, 1, 2).float())
+            seg_loss_val = seg_loss_val + self.dice_weight * dice_loss_val
 
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
@@ -326,6 +333,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
         ce_weight=0.9,  # increased weight on cross-entropy component
+        dice_weight=0.1,
         class_weights=class_weights
     )
 
