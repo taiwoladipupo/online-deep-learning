@@ -75,7 +75,7 @@ class CombinedLoss(nn.Module):
         self.dice_loss = DiceLoss()
         # Use the provided class weights (1.0, 80.0, 100.0) by default.
         if class_weights is None:
-            class_weights = torch.tensor([1.0, 100.0, 140.0], dtype=torch.float32)
+            class_weights = torch.tensor([1.0, 150.0, 200.0], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
@@ -346,7 +346,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-5,
     model = load_model(model_name, **kwargs).to(device)
 
     # Calculate class weights for the loss function (should be close to (1.0,80.0,100.0) as desired).
-    class_weights = calculate_class_weights(train_data).to(device)
+    class_weights = torch.tensor([1.0, 150.0, 200.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
