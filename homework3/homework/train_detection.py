@@ -123,12 +123,11 @@ def get_val_transforms():
 
 
 def compute_sample_weights(dataset):
-    class_counts = np.bincount([sample['track'].item() for sample in dataset])
+    class_counts = np.bincount([int(sample['track'].item()) for sample in dataset])
     total_samples = len(dataset)
     class_weights = total_samples / (len(class_counts) * class_counts)
-    sample_weights = [class_weights[sample['track'].item()] for sample in dataset]
+    sample_weights = [class_weights[int(sample['track'].item())] for sample in dataset]
     return sample_weights
-
 # Main Training Loop
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
           batch_size=64, seed=2024, transform_pipeline="default", **kwargs):
@@ -145,11 +144,17 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
     train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
+    print(f"Loaded {len(train_dataset)} training samples.")
+    print(f"Sample data shape: {train_dataset[0]['image'].shape}, {train_dataset[0]['track'].shape}, {train_dataset[0]['depth'].shape}")
+
+
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
-    print("Verifying training labels...")
-    visualize_sample(train_data, num_samples=1)
-    print_label_histogram(train_data)
+    print(f"Loaded {len(val_data)} validation samples.")
+    print(
+        f"Sample data shape: {val_data[0]['image'].shape}, {val_data[0]['track'].shape}, {val_data[0]['depth'].shape}")
+
+    # print("Verifying training labels...")
 
     model = load_model(model_name, **kwargs).to(device)
 
