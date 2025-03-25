@@ -406,7 +406,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
 
                 # Print original softmax statistics
                 probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
-                print("Original softmax means:", probs_orig)
+                # print("Original softmax means:", probs_orig)
 
                 # Apply temperature scaling
                 temperature = 1.17
