@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
@@ -84,25 +85,26 @@ def load_data(
     num_workers: int = 2,
     batch_size: int = 32,
     shuffle: bool = False,
-) -> DataLoader | Dataset:
+) -> Union[DataLoader, ConcatDataset]:
     """
-    Constructs the dataset/dataloader.
+    Constructs and returns the dataset or dataloader for the given dataset path.
     The specified transform_pipeline must be implemented in the RoadDataset class.
 
     Args:
-        transform_pipeline (str): 'default', 'aug', or other custom transformation pipelines
-        return_dataloader (bool): returns either DataLoader or Dataset
-        num_workers (int): data workers, set to 0 for VSCode debugging
-        batch_size (int): batch size
-        shuffle (bool): should be true for train and false for val
+        dataset_path (str): Path to the dataset directory.
+        transform_pipeline (str): 'default', 'aug', or other custom transformation pipelines.
+        return_dataloader (bool): If True, returns a DataLoader; if False, returns a Dataset.
+        num_workers (int): Number of data workers (set to 0 for debugging).
+        batch_size (int): Batch size.
+        shuffle (bool): Whether to shuffle the dataset (typically True for training, False for validation).
 
     Returns:
-        DataLoader or Dataset
+        Union[DataLoader, ConcatDataset]: Either a DataLoader or the raw concatenated Dataset.
     """
     dataset_path = Path(dataset_path)
     scenes = [x for x in dataset_path.iterdir() if x.is_dir()]
 
-    # can pass in a single scene like "road_data/val/cornfield_crossing_04"
+    # If no episodes are found, assume a single scene is provided.
     if not scenes and dataset_path.is_dir():
         scenes = [dataset_path]
 
