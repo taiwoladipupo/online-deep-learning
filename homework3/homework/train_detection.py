@@ -19,6 +19,10 @@ from .metrics import ConfusionMatrix
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 
+# If needed, enable device-side assertions for better error reporting.
+# In your terminal, run:
+# TORCH_USE_CUDA_DSA=1 python train_detection.py --model_name detector
+
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 # Loss Functions
@@ -69,6 +73,7 @@ class CombinedLoss(nn.Module):
         self.lovasz_loss = LovaszSoftmaxLoss()
         self.focal_loss = FocalLoss(logits=True)
         self.dice_loss = DiceLoss()
+        # Use the provided class weights (1.0, 80.0, 100.0) by default.
         if class_weights is None:
             class_weights = torch.tensor([1.0, 80.0, 100.0], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
@@ -86,16 +91,16 @@ class CombinedLoss(nn.Module):
         depth_true = depth_true.to(device)
 
         if logits.shape[2:] != target.shape[1:]:
-            logits = nn.functional.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
+            logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
         lovasz_loss_val = self.lovasz_loss(logits, target)
         ce_loss_val = self.ce_loss(logits, target)
         seg_loss_val = (1 - self.ce_weight) * lovasz_loss_val + self.ce_weight * ce_loss_val
 
-        # Optionally mix in Dice loss if dice_weight > 0
         if self.dice_weight > 0:
-            dice_loss_val = self.dice_loss(logits,
-                                           F.one_hot(target, num_classes=logits.size(1)).permute(0, 3, 1, 2).float())
+            # Convert target to one-hot encoding
+            one_hot_target = F.one_hot(target, num_classes=logits.size(1)).permute(0, 3, 1, 2).float()
+            dice_loss_val = self.dice_loss(logits, one_hot_target)
             seg_loss_val = seg_loss_val + self.dice_weight * dice_loss_val
 
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
@@ -103,35 +108,30 @@ class CombinedLoss(nn.Module):
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
             depth_true = depth_true.squeeze(1)
         if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-            depth_pred = nn.functional.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
+            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
-
 def hard_example_mining(logits, labels, ratio=0.7):
     """
-    Selects the hardest examples based on the loss value.
-    Args:
-        logits: Predicted logits from the model.
-        labels: Ground truth labels.
-        ratio: Ratio of hard examples to select.
-    Returns:
-        Selected hard examples.
+    Selects the hardest examples based on the cross-entropy loss.
+    Returns indices of the hardest examples in the batch.
     """
     with torch.no_grad():
-        # Move logits and labels to CPU for debugging
         logits_cpu = logits.cpu()
         labels_cpu = labels.cpu()
 
-        # Check the range of labels
+        # Ensure labels are within range [0, C-1]
         if labels_cpu.min() < 0 or labels_cpu.max() >= logits_cpu.size(1):
             raise ValueError(f"Labels out of range: min={labels_cpu.min()}, max={labels_cpu.max()}")
 
         loss = F.cross_entropy(logits_cpu, labels_cpu, reduction='none')
-        num_hard = int(ratio * len(loss))
+        num_hard = int(ratio * loss.numel())
+        if num_hard == 0:
+            return torch.arange(loss.numel()).to(logits.device)
         _, hard_indices = torch.topk(loss, num_hard)
-    return hard_indices.to(logits.device)  # Move indices back to the original devicees
+    return hard_indices.to(logits.device)
 
 def compute_sample_weights(dataset):
     weights = []
@@ -149,23 +149,12 @@ class LovaszSoftmaxLoss(nn.Module):
         super(LovaszSoftmaxLoss, self).__init__()
 
     def forward(self, logits, labels):
-        """
-        Args:
-            logits: [B, C, H, W] Variable, logits at each pixel (between -\infty and +\infty)
-            labels: [B, H, W] Tensor, ground truth labels (between 0 and C - 1)
-        """
         logits = logits.permute(0, 2, 3, 1).contiguous()
         labels = labels.view(-1)
         logits = logits.view(-1, logits.size(-1))
         return self.lovasz_softmax_flat(logits, labels)
 
     def lovasz_softmax_flat(self, logits, labels):
-        """
-        Multi-class Lovasz-Softmax loss
-        Args:
-            logits: [P, C] Variable, logits at each prediction (between -\infty and +\infty)
-            labels: [P] Tensor, ground truth labels (between 0 and C - 1)
-        """
         C = logits.size(1)
         losses = []
         for c in range(C):
@@ -181,17 +170,14 @@ class LovaszSoftmaxLoss(nn.Module):
 
     @staticmethod
     def lovasz_grad(gt_sorted):
-        """
-        Computes gradient of the Lovasz extension w.r.t sorted errors
-        See Alg. 1 in paper
-        """
         gts = gt_sorted.sum()
         intersection = gts - gt_sorted.float().cumsum(0)
         union = gts + (1 - gt_sorted).float().cumsum(0)
         jaccard = 1. - intersection / union
-        if gt_sorted.numel() > 1:  # cover case when gt_sorted is empty
+        if gt_sorted.numel() > 1:
             jaccard[1:] = jaccard[1:] - jaccard[:-1]
         return jaccard
+
 # Data Augmentation Transforms
 def get_train_transforms():
     return T.Compose([
@@ -229,7 +215,6 @@ def visualize_sample(data_loader, num_samples=1):
         if i + 1 >= num_samples:
             break
 
-
 def print_label_histogram(data_loader):
     all_labels = []
     for batch in data_loader:
@@ -256,13 +241,11 @@ class WarmupScheduler(_LRScheduler):
         if self.last_epoch < self.warmup_steps:
             return [base_lr * (self.last_epoch + 1) / self.warmup_steps for base_lr in self.base_lrs]
         else:
-            return [base_lr * (self.total_steps - self.last_epoch) / (self.total_steps - self.warmup_steps) for base_lr
-                    in self.base_lrs]
+            return [base_lr * (self.total_steps - self.last_epoch) / (self.total_steps - self.warmup_steps) for base_lr in self.base_lrs]
 
 def warmup_scheduler_fn(optimizer, warmup_epochs=3):
     def lr_lambda(epoch):
         return float(epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
-
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 def match_shape(pred, target):
@@ -316,15 +299,14 @@ def predict(model, image_path, device):
     plt.show()
     return pred_mask, depth_pred
 
-
 def normalize_logits(logits):
     mean = logits.mean(dim=(0, 2, 3), keepdim=True)
     std = logits.std(dim=(0, 2, 3), keepdim=True)
     normalized_logits = (logits - mean) / (std + 1e-6)
     return normalized_logits
 
-# Main Training Loop with WeightedRandomSampler and Extended Training
-def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowered lr to 1e-4
+# Main Training Loop with Hard Example Mining and WeightedRandomSampler
+def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
@@ -333,7 +315,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
 
-    # Load training dataset as a Dataset (return_dataloader=False) to compute sample weights.
+    # Load training dataset as a Dataset to compute sample weights.
     train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
@@ -349,17 +331,18 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
 
     model = load_model(model_name, **kwargs).to(device)
 
-    # Calculate class weights for the loss function.
+    # Calculate class weights for the loss function (should be close to (1.0,80.0,100.0) as desired).
     class_weights = calculate_class_weights(train_data).to(device)
+    print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
         device=device,
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
-        ce_weight=0.9,  # increased weight on cross-entropy component
+        ce_weight=0.9,
         dice_weight=0.1,
-        class_weights=class_weights
+        class_weights=class_weights  # Use (1.0,80.0,100.0) or your computed values
     )
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
@@ -367,76 +350,69 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
 
     global_step = 0
     best_miou = 0
-    val_losses = []
 
     for epoch in range(num_epoch):
         loss_func.set_epoch(epoch)
         model.train()
-        train_losses = []
+        epoch_train_losses = []
 
         for batch in train_data:
             img = batch["image"].to(device).float()
-            label = batch["track"].to(device).long()  # Convert to long here!
+            label = batch["track"].to(device).long()
             depth_true = batch["depth"].to(device)
 
             logits, depth_pred = model(img)
             normalized_logits = normalize_logits(logits)
 
-            # Print original softmax statistics
-            probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
-            # print("Original softmax means:", probs_orig)
-            # Squeeze if needed:
+            # If label has extra channel dimension, squeeze it.
             if label.ndim == 4 and label.shape[1] == 1:
                 label = label.squeeze(1)
 
             temperature = 1.8
             scaled_logits = normalized_logits / temperature
-            # Ensure spatial dimensions match:
             if scaled_logits.shape[2:] != label.shape[1:]:
                 scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-                depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
-                                           align_corners=False).squeeze(1)
+                depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
 
-                # Select hard examples
+            # Hard example mining: get indices for the hardest examples.
+            try:
                 hard_indices = hard_example_mining(scaled_logits, label)
+            except ValueError as ve:
+                print("Error in hard example mining:", ve)
+                continue
+
+            # Debug prints for hard indices.
+            # Uncomment if needed:
+            # print("Hard indices:", hard_indices)
+            # print("Batch size:", img.shape[0])
+
+            # Check if hard_indices is empty
+            if hard_indices.numel() == 0:
+                # Skip hard mining if no indices found
+                pass
+            else:
+                # Optionally, only use hard examples for loss computation.
                 img = img[hard_indices]
                 label = label[hard_indices]
                 depth_true = depth_true[hard_indices]
                 scaled_logits = scaled_logits[hard_indices]
                 depth_pred = depth_pred[hard_indices]
 
-                loss = loss_func(scaled_logits, label, depth_pred, depth_true)
-                # print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
-                # print("Logit min, max:", logits.min(), logits.max())
-
-                optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-                optimizer.step()
-
-                train_losses.append(loss.item())
-                logger.add_scalar("train/total_loss", loss.item(), global_step)
-                global_step += 1
-
             loss = loss_func(scaled_logits, label, depth_pred, depth_true)
-            # print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
-            # print("Logit min, max:", logits.min(), logits.max())
-
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
-            train_losses.append(loss.item())
+            epoch_train_losses.append(loss.item())
             logger.add_scalar("train/total_loss", loss.item(), global_step)
             global_step += 1
 
-
-
         # Validation
         model.eval()
-        val_losses, depth_errors = [], []
+        epoch_val_losses = []
+        depth_errors = []
         confusion_matrix = ConfusionMatrix(num_classes=3)
 
         with torch.no_grad():
@@ -446,41 +422,25 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
                 depth_true = batch["depth"].to(device)
 
                 logits, depth_pred = model(img)
-
-                # Normalize logits
                 normalized_logits = normalize_logits(logits)
-
-                # Print original softmax statistics
-                probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
-                # print("Original softmax means:", probs_orig)
-
-                # Apply temperature scaling
                 temperature = 1.8
                 scaled_logits = normalized_logits / temperature
-                probs_scaled = torch.softmax(scaled_logits, dim=1).mean(dim=(0, 2, 3))
-                # print("Scaled softmax means:", probs_scaled)
-
                 if scaled_logits.shape[2:] != label.shape[1:]:
-                    scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear',
-                                                  align_corners=False)
+                    scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
                 if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-                    depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
-                                               align_corners=False).squeeze(1)
+                    depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
 
                 loss = loss_func(scaled_logits, label, depth_pred, depth_true)
-                val_losses.append(loss.item())
+                epoch_val_losses.append(loss.item())
 
                 pred = scaled_logits.argmax(dim=1)
                 confusion_matrix.add(pred, label)
                 depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
 
-            # Continue computing and logging metrics...
-
             avg_probs = F.softmax(logits, dim=1).mean(dim=(0, 2, 3))
             pred_classes = logits.argmax(dim=1)
             total = pred_classes.numel()
-            pred_dist = {int(k): f"{(v / total) * 100:.2f}%" for k, v in
-                         zip(*torch.unique(pred_classes, return_counts=True))}
+            pred_dist = {int(k): f"{(v / total) * 100:.2f}%" for k, v in zip(*torch.unique(pred_classes, return_counts=True))}
 
             print(f"\nEpoch {epoch + 1}/{num_epoch}")
             print("Average class probabilities:", avg_probs)
@@ -493,8 +453,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             print("mIoU:", miou["iou"])
             print("mean_depth_mae:", mean_depth_mae)
             for i, iou in enumerate(np.diag(confusion_matrix.matrix) /
-                                    (confusion_matrix.matrix.sum(1) + confusion_matrix.matrix.sum(0) - np.diag(
-                                        confusion_matrix.matrix) + 1e-6)):
+                                    (confusion_matrix.matrix.sum(1) + confusion_matrix.matrix.sum(0) - np.diag(confusion_matrix.matrix) + 1e-6)):
                 print(f"Class {i} IoU: {iou:.3f}")
 
             if miou["iou"] > best_miou:
@@ -506,10 +465,9 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             logger.add_scalar("val/seg_accuracy", miou["accuracy"], epoch)
             logger.add_scalar("val/depth_mae", mean_depth_mae, epoch)
 
-            print(
-                f"Epoch {epoch + 1:2d}/{num_epoch:2d} - Train loss: {np.mean(train_losses):.4f}, Val loss: {np.mean(val_losses):.4f}")
+            print(f"Epoch {epoch + 1:2d}/{num_epoch:2d} - Train loss: {np.mean(epoch_train_losses):.4f}, Val loss: {np.mean(epoch_val_losses):.4f}")
 
-        scheduler.step(np.mean(val_losses))
+        scheduler.step(np.mean(epoch_val_losses))
 
     save_model(model)
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
@@ -524,4 +482,4 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=2024)
     parser.add_argument("--transform_pipeline", type=str, default="default")
     args = parser.parse_args()
-    train(**vars(parser.parse_args()))
+    train(**vars(args))
