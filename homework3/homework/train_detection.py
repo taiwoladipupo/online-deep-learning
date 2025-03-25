@@ -194,23 +194,7 @@ def match_shape(pred, target):
         pred = F.interpolate(pred, size=target.shape[1:], mode='bilinear', align_corners=False)
     return pred
 
-###############################################
-# Calculate Class Weights (for reference)
-###############################################
 
-def calculate_class_weights(data_loader):
-    """
-    Calculate class weights based on the inverse frequency of each class in the dataset.
-    """
-    all_labels = []
-    for batch in data_loader:
-        labels = batch["track"].view(-1)
-        all_labels.extend(labels.cpu().numpy())
-    all_labels = np.array(all_labels)
-    unique, counts = np.unique(all_labels, return_counts=True)
-    total_counts = np.sum(counts)
-    class_weights = total_counts / (len(unique) * counts)
-    return torch.tensor(class_weights, dtype=torch.float32)
 
 
 def predict(model, image_path, device):
