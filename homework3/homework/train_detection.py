@@ -89,10 +89,7 @@ class CombinedLoss(nn.Module):
 
         lovasz_loss_val = self.lovasz_loss(logits, target)
         ce_loss_val = self.ce_loss(logits, target)
-        focal_loss_val = self.focal_loss(logits, target)
-        dice_loss_val = self.dice_loss(logits, target)
-
-        seg_loss_val = (1 - self.ce_weight) * (lovasz_loss_val + focal_loss_val + dice_loss_val) + self.ce_weight * ce_loss_val
+        seg_loss_val = (1 - self.ce_weight) * lovasz_loss_val + self.ce_weight * ce_loss_val
 
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
