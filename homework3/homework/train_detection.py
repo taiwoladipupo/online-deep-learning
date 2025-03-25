@@ -312,7 +312,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
-        ce_weight=0.8,  # increased weight on cross-entropy component
+        ce_weight=0.9,  # increased weight on cross-entropy component
         class_weights=class_weights
     )
 
@@ -334,17 +334,23 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             depth_true = batch["depth"].to(device)
 
             logits, depth_pred = model(img)
+
+            # Print original softmax statistics
+            probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
+            print("Original softmax means:", probs_orig)
             # Squeeze if needed:
             if label.ndim == 4 and label.shape[1] == 1:
                 label = label.squeeze(1)
+
+            temperature = 2.0
+            scaled_logits = logits / temperature
             # Ensure spatial dimensions match:
-            if logits.shape[2:] != label.shape[1:]:
-                logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
+            if scaled_logits.shape[2:] != label.shape[1:]:
+                scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                            align_corners=False).squeeze(1)
-            temperature = 2.0
-            scaled_logits = logits / temperature
+
             loss = loss_func(scaled_logits, label, depth_pred, depth_true)
             print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
             print("Logit min, max:", logits.min(), logits.max())
@@ -367,31 +373,37 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
 
         with torch.no_grad():
             for batch in val_data:
-                # Convert inputs to device and proper types
                 img = batch["image"].to(device).float()
-                label = batch["track"].to(device).long()  # Convert to long for loss functions
+                label = batch["track"].to(device).long()
                 depth_true = batch["depth"].to(device)
 
-                # Forward pass
                 logits, depth_pred = model(img)
 
-                # Resize logits to match the target spatial dimensions if needed
-                if logits.shape[2:] != label.shape[1:]:
-                    logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
+                # Print original softmax statistics
+                probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
+                print("Original softmax means:", probs_orig)
 
-                # Resize depth predictions to match depth_true dimensions if needed
+                # Apply temperature scaling
+                temperature = 2.0
+                scaled_logits = logits / temperature
+                probs_scaled = torch.softmax(scaled_logits, dim=1).mean(dim=(0, 2, 3))
+                print("Scaled softmax means:", probs_scaled)
+
+                if scaled_logits.shape[2:] != label.shape[1:]:
+                    scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear',
+                                                  align_corners=False)
                 if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                     depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                                align_corners=False).squeeze(1)
 
-                # Compute loss for logging
-                loss = loss_func(logits, label, depth_pred, depth_true)
+                loss = loss_func(scaled_logits, label, depth_pred, depth_true)
                 val_losses.append(loss.item())
 
-                # Compute predictions and update confusion matrix
-                pred = logits.argmax(dim=1)
+                pred = scaled_logits.argmax(dim=1)
                 confusion_matrix.add(pred, label)
                 depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
+
+            # Continue computing and logging metrics...
 
             avg_probs = F.softmax(logits, dim=1).mean(dim=(0, 2, 3))
             pred_classes = logits.argmax(dim=1)
