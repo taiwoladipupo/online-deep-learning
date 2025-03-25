@@ -124,25 +124,45 @@ class ConvBlock(nn.Module):
 
 
 # --- Downsampling Block ---
-class DownBlock(nn.Module):
+# --- Residual Downsampling Block ---
+class ResidualDownBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super(DownBlock, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
+        """
+        A downsampling block with residual connection.
+        It uses two 3x3 convolutions.
+        The first convolution does not downsample (stride=1) and the second does (stride=2).
+        If in_channels != out_channels, a 1x1 convolution is used on the shortcut to match dimensions.
+        """
+        super(ResidualDownBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # Create a shortcut path if the dimensions change
+        self.shortcut = nn.Sequential()
+        if in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=2),
+                nn.BatchNorm2d(out_channels)
+            )
+
     def forward(self, x):
-        out = self.conv(x)
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        shortcut = self.shortcut(x)
+        out += shortcut
+        out = self.relu(out)
         return out
+
 
 # --- Upsampling Block with Skip Connection ---
 class UpBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         """
-        in_channels: number of channels from the previous layer (bottleneck or previous up-block)
-        out_channels: number of output channels for this block.
-        After upsampling, the skip connection will be concatenated (so input to conv becomes 2*out_channels)
+        Upsampling block that first upsamples using ConvTranspose2d,
+        then concatenates with the skip connection, and processes with conv layers.
         """
         super(UpBlock, self).__init__()
         self.upconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
@@ -151,6 +171,7 @@ class UpBlock(nn.Module):
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
+
     def forward(self, x, skip):
         x_up = self.upconv(x)
         # If spatial dimensions differ due to rounding, interpolate to match skip size.
@@ -161,12 +182,13 @@ class UpBlock(nn.Module):
         out = self.conv(x_cat)
         return out
 
+
 # --- Detector Model ---
 class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
-        Detector model that uses an encoder-decoder architecture with skip connections.
-        It processes image features and then branches into:
+        Detector model with an encoder-decoder architecture using skip connections.
+        The network processes image features and branches into two heads:
          - Segmentation head: outputs logits for each class.
          - Depth head: outputs a single-channel depth map (scaled to [0, 1] via Sigmoid).
         Input: (B, 3, H, W)
@@ -175,48 +197,64 @@ class Detector(nn.Module):
          - Depth: (B, H, W)
         """
         super(Detector, self).__init__()
-        # Encoder (Downsampling Blocks)
-        self.down1 = DownBlock(3, 16)   # (B, 3, H, W) -> (B, 16, H/2, W/2)
-        self.down2 = DownBlock(16, 32)  # -> (B, 32, H/4, W/4)
-        self.down3 = DownBlock(32, 64)  # -> (B, 64, H/8, W/8)
+        # Encoder using Residual Downsampling Blocks
+        self.down1 = ResidualDownBlock(3, 16)  # (B, 3, H, W) -> (B, 16, H/2, W/2)
+        self.down2 = ResidualDownBlock(16, 32)  # -> (B, 32, H/4, W/4)
+        self.down3 = ResidualDownBlock(32, 64)  # -> (B, 64, H/8, W/8)
+
         # Bottleneck
         self.bottleneck = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True)
         )
+
         # Decoder (Upsampling Blocks with Skip Connections)
-        self.up1 = UpBlock(128, 64)     # will upsample from H/8 -> H/4
-        self.up2 = UpBlock(64, 32)      # H/4 -> H/2
-        self.up3 = UpBlock(32, 16)      # H/2 -> H
+        self.up1 = UpBlock(128, 64)  # Upsample from H/8 to H/4, use d3 skip connection
+        self.up2 = UpBlock(64, 32)  # Upsample from H/4 to H/2, use d2 skip connection
+        self.up3 = UpBlock(32, 16)  # Upsample from H/2 to H, use d1 skip connection
+
         # Segmentation head: outputs logits for each class.
         self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)
-        # Depth head: outputs single channel, and Sigmoid scales to [0,1].
+        # Depth head: outputs a single channel and uses Sigmoid to scale outputs in [0, 1]
         self.depth_head = nn.Sequential(
             nn.Conv2d(16, 1, kernel_size=1),
             nn.Sigmoid()
         )
 
     def forward(self, x):
-        # Uncomment the print lines for debugging shapes.
-        # print("Input shape:", x.shape)
-        d1 = self.down1(x)
-        # print("After down1:", d1.shape)
-        d2 = self.down2(d1)
-        # print("After down2:", d2.shape)
-        d3 = self.down3(d2)
-        # print("After down3:", d3.shape)
-        bn = self.bottleneck(d3)
-        # print("Bottleneck:", bn.shape)
-        u1 = self.up1(bn, d3)
-        # print("After up1:", u1.shape)
-        u2 = self.up2(u1, d2)
-        # print("After up2:", u2.shape)
-        u3 = self.up3(u2, d1)
-        # print("After up3:", u3.shape)
-        seg_logits = self.seg_head(u3)
-        depth = self.depth_head(u3).squeeze(1)
+        # Encoder path
+        d1 = self.down1(x)  # (B, 16, H/2, W/2)
+        d2 = self.down2(d1)  # (B, 32, H/4, W/4)
+        d3 = self.down3(d2)  # (B, 64, H/8, W/8)
+
+        # Bottleneck
+        bn = self.bottleneck(d3)  # (B, 128, H/8, W/8)
+
+        # Decoder path with skip connections
+        u1 = self.up1(bn, d3)  # (B, 64, H/4, W/4)
+        u2 = self.up2(u1, d2)  # (B, 32, H/2, W/2)
+        u3 = self.up3(u2, d1)  # (B, 16, H, W)
+
+        # Heads for segmentation and depth prediction
+        seg_logits = self.seg_head(u3)  # (B, num_classes, H, W)
+        depth = self.depth_head(u3).squeeze(1)  # (B, H, W)
         return seg_logits, depth
+
+    def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Used for inference: returns both predicted segmentation (class labels) and depth.
+        Args:
+            x (torch.FloatTensor): input image with shape (B, 3, h, w)
+        Returns:
+            tuple:
+              - pred: predicted class labels with shape (B, h, w)
+              - depth: predicted depth in [0, 1] with shape (B, h, w)
+        """
+        logits, raw_depth = self(x)
+        pred = logits.argmax(dim=1)
+        depth = raw_depth  # Already scaled by Sigmoid
+        return pred, depth
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Used for inference, takes an image and returns class labels and normalized depth.
