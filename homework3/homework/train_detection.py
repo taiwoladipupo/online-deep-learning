@@ -9,7 +9,6 @@ import torch.nn.functional as F
 import torch.utils.tensorboard as tb
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 import matplotlib.pyplot as plt
-import torchvision.models as models
 import torchvision.transforms as T
 from PIL import Image
 from collections import Counter
@@ -23,10 +22,11 @@ from .datasets.road_dataset import load_data
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 
+#############################
+# Loss Functions
+#############################
+
 def lovasz_grad(gt_sorted):
-    """
-    Computes gradient of the Lovász extension with respect to sorted errors.
-    """
     gts = gt_sorted.sum()
     if gts == 0:
         return torch.zeros_like(gt_sorted)
@@ -35,9 +35,6 @@ def lovasz_grad(gt_sorted):
 
 
 def lovasz_softmax_flat(probas, labels):
-    """
-    Computes the Lovász-Softmax loss for a flat tensor of predictions and labels.
-    """
     losses = []
     C = probas.size(1)
     for c in range(C):
@@ -57,9 +54,6 @@ def lovasz_softmax_flat(probas, labels):
 
 class LovaszSoftmaxLoss(nn.Module):
     def __init__(self, per_image=True, ignore=None):
-        """
-        Lovász-Softmax loss (simplified implementation).
-        """
         super(LovaszSoftmaxLoss, self).__init__()
         self.per_image = per_image
         self.ignore = ignore
@@ -72,18 +66,10 @@ class LovaszSoftmaxLoss(nn.Module):
 
 class WeightedLovaszSoftmaxLoss(nn.Module):
     def __init__(self, per_image=True, ignore=None, class_weights=None):
-        """
-        Weighted Lovász-Softmax loss.
-
-        Args:
-            per_image (bool): whether to compute the loss per image.
-            ignore: label to ignore.
-            class_weights: Tensor of class weights.
-        """
         super(WeightedLovaszSoftmaxLoss, self).__init__()
         self.per_image = per_image
         self.ignore = ignore
-        self.class_weights = class_weights
+        self.class_weights = class_weights  # Expecting a tensor
 
     def forward(self, logits, labels):
         probas = torch.softmax(logits, dim=1)
@@ -95,29 +81,33 @@ class WeightedLovaszSoftmaxLoss(nn.Module):
         return loss.mean()
 
 
-class LovaszCombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, class_weights=None):
+class LovaszCrossEntropyCombinedLoss(nn.Module):
+    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=0.6,
+                 class_weights=None):
         """
         Combined loss for segmentation and optional depth regression.
-        Uses Lovász-Softmax loss for segmentation and L1 loss for depth.
+        Segmentation loss is a blend of Lovász-Softmax loss and weighted cross-entropy loss.
 
         Args:
             device (torch.device): Device to run the loss on.
             total_epochs (int): Total training epochs.
             seg_loss_weight (float): Weight for segmentation loss.
             depth_loss_weight (float): Weight for depth regression loss.
-            class_weights: Tensor of class weights (if provided, used in weighted Lovász loss).
+            ce_weight (float): Weight for the cross-entropy component (0 to 1). Lovász loss contributes with weight (1 - ce_weight).
+            class_weights (Tensor, optional): Class weights for cross-entropy.
+                If None, defaults to [1.0, 20.0, 20.0].
         """
-        super(LovaszCombinedLoss, self).__init__()
+        super(LovaszCrossEntropyCombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
+        self.ce_weight = ce_weight
 
-        if class_weights is not None:
-            self.seg_loss = WeightedLovaszSoftmaxLoss(class_weights=class_weights)
-        else:
-            self.seg_loss = LovaszSoftmaxLoss()
+        self.lovasz_loss = LovaszSoftmaxLoss()
+        if class_weights is None:
+            class_weights = torch.tensor([1.0, 20.0, 20.0], dtype=torch.float32)
+        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
         if device:
@@ -135,7 +125,10 @@ class LovaszCombinedLoss(nn.Module):
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
-        seg_loss_val = self.seg_loss(logits, target)
+        lovasz_loss_val = self.lovasz_loss(logits, target)
+        ce_loss_val = self.ce_loss(logits, target)
+
+        seg_loss_val = (1 - self.ce_weight) * lovasz_loss_val + self.ce_weight * ce_loss_val
 
         # Process depth predictions
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
@@ -147,35 +140,42 @@ class LovaszCombinedLoss(nn.Module):
                                        align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
 
-        # Normalize depth loss
-        depth_loss_val = depth_loss_val / torch.max(depth_true)
-
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 
-def compute_sample_weights(dataset):
-    """
-    Computes a weight for each sample based on the inverse frequency of rare-class pixels.
-    Rare-class pixels are those with label 1 or 2.
-    """
-    weights = []
-    for i in range(len(dataset)):
-        mask = torch.tensor(dataset[i]["track"]).float()  # (H, W)
-        total_pixels = mask.numel()
-        rare_pixels = ((mask == 1) | (mask == 2)).float().sum().item()
-        rare_ratio = rare_pixels / total_pixels
-        weight = 1.0 / (rare_ratio + 1e-6)
-        weights.append(weight)
-    return weights
+#############################
+# Data Augmentation Transforms
+#############################
 
+def get_train_transforms():
+    return T.Compose([
+        T.Resize((192, 256)),
+        T.RandomHorizontalFlip(),
+        T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        T.RandomCrop((192, 256)),
+        T.ToTensor(),
+        T.Normalize(mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225])
+    ])
+
+
+def get_val_transforms():
+    return T.Compose([
+        T.Resize((192, 256)),
+        T.ToTensor(),
+        T.Normalize(mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225])
+    ])
+
+
+#############################
+# Visualization and Histogram
+#############################
 
 def visualize_sample(data_loader, num_samples=1):
-    """
-    Visualizes one sample (image and segmentation mask) from the provided data loader.
-    """
     for i, batch in enumerate(data_loader):
-        image = batch["image"][0].permute(1, 2, 0).cpu().numpy()  # (H, W, C)
-        mask = batch["track"][0].cpu().numpy()  # (H, W)
+        image = batch["image"][0].permute(1, 2, 0).cpu().numpy()
+        mask = batch["track"][0].cpu().numpy()
         plt.figure(figsize=(12, 6))
         plt.subplot(1, 2, 1)
         plt.title("Input Image")
@@ -190,9 +190,6 @@ def visualize_sample(data_loader, num_samples=1):
 
 
 def print_label_histogram(data_loader):
-    """
-    Computes and prints the overall label distribution across the dataset.
-    """
     all_labels = []
     for batch in data_loader:
         labels = batch["track"].view(-1)
@@ -202,6 +199,10 @@ def print_label_histogram(data_loader):
     distribution = dict(zip(unique, counts))
     print("Overall label distribution:", distribution)
 
+
+#############################
+# Warmup Scheduler and Helpers
+#############################
 
 class WarmupScheduler(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, total_steps, last_epoch=-1):
@@ -231,10 +232,6 @@ def match_shape(pred, target):
 
 
 def calculate_class_weights(data_loader):
-    """
-    Calculate class weights based on the inverse frequency of each class in the dataset.
-    Uses median frequency balancing to avoid extremely low background weights.
-    """
     all_labels = []
     for batch in data_loader:
         labels = batch["track"].view(-1)
@@ -244,17 +241,15 @@ def calculate_class_weights(data_loader):
     freq = counts / np.sum(counts)
     median_freq = np.median(freq)
     class_weights = median_freq / freq
-    # Ensure weights are ordered by class index 0,1,2.
     weight_dict = {cls: w for cls, w in zip(unique, class_weights)}
-    # For any missing class, set weight to 1.0
     return torch.tensor([weight_dict.get(i, 1.0) for i in range(3)], dtype=torch.float32)
 
 
+#############################
+# Prediction Function for Inference
+#############################
+
 def predict(model, image_path, device):
-    """
-    Loads an image, applies preprocessing, runs inference,
-    and visualizes the input, predicted segmentation, and depth.
-    """
     transform = T.Compose([
         T.Resize((192, 256)),
         T.ToTensor(),
@@ -287,7 +282,11 @@ def predict(model, image_path, device):
     return pred_mask, depth_pred
 
 
-def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
+#############################
+# Main Training Loop with WeightedRandomSampler and Extended Training
+#############################
+
+def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowered lr to 1e-4
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
@@ -296,7 +295,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
 
-    # Load training dataset as a Dataset object (batch_size=1) to compute sample weights.
+    # Load training dataset as a Dataset (return_dataloader=False) to compute sample weights.
     train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
@@ -314,11 +313,12 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
 
     # Calculate class weights for the loss function.
     class_weights = calculate_class_weights(train_data)
-    loss_func = LovaszCombinedLoss(
+    loss_func = LovaszCrossEntropyCombinedLoss(
         device=device,
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
+        ce_weight=0.6,  # increased weight on cross-entropy component
         class_weights=class_weights
     )
 
@@ -344,7 +344,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
                 label = label.squeeze(1)
             if logits.shape[2:] != label.shape[1:]:
                 logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
-
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                            align_corners=False).squeeze(1)
@@ -353,13 +352,15 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
 
             optimizer.zero_grad()
             loss.backward()
+            # Optional: gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
             train_losses.append(loss.item())
             logger.add_scalar("train/total_loss", loss.item(), global_step)
             global_step += 1
 
-        # Use validation loss for learning rate scheduling.
+        # Validation
         model.eval()
         val_losses, depth_errors = [], []
         confusion_matrix = ConfusionMatrix(num_classes=3)
@@ -373,7 +374,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-3,
                 logits, depth_pred = model(img)
                 if logits.shape[2:] != label.shape[1:]:
                     logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
-
                 if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                     depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                                align_corners=False).squeeze(1)
