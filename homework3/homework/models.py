@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torchvision.models as models
-
+import torch.nn.functional as F
 HOMEWORK_DIR = Path(__file__).resolve().parent
 INPUT_MEAN = [0.2788, 0.2657, 0.2629]
 INPUT_STD = [0.2064, 0.1944, 0.2252]
@@ -163,7 +163,7 @@ class Detector(nn.Module):
         self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
 
     def forward(self, x):
-        features = self.encoder(x)  # (B,576,~6,~8)
+        features = self.encoder(x)  # (B,576, ~6, ~8)
         up = self.decoder(features)  # (B,16,96,128)
         seg_logits = self.seg_head(up)  # (B,num_classes,96,128)
         depth = self.depth_head(up)  # (B,1,96,128)
@@ -182,7 +182,10 @@ class Detector(nn.Module):
         """
         logits, raw_depth = self(x)
         pred = logits.argmax(dim=1)
-        depth = raw_depth  # Optionally add post-processing here.
+        # IMPORTANT: Adjust depth size to match ground truth expected resolution.
+        # Here we assume the ground truth depth has size (96, 64) (height, width),
+        # so we downsample the predicted depth from (96,128) to (96,64).
+        depth = F.interpolate(raw_depth.unsqueeze(1), size=(96, 64), mode='bilinear', align_corners=False).squeeze(1)
         return pred, depth
 
 MODEL_FACTORY = {
