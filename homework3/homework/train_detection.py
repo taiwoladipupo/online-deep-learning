@@ -51,7 +51,7 @@ class DiceLoss(nn.Module):
     def forward(self, inputs, targets):
         inputs = torch.sigmoid(inputs)
         inputs = inputs.reshape(-1)
-        targets = targets.rehspe(-1)
+        targets = targets.reshape(-1)
         intersection = (inputs * targets).sum()
         dice = (2. * intersection + self.smooth) / (inputs.sum() + targets.sum() + self.smooth)
         return 1 - dice
