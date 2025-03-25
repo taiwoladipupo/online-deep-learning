@@ -389,30 +389,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
 
-            # Hard example mining: get indices for the hardest examples.
-            try:
-                hard_indices = hard_example_mining(scaled_logits, label)
-            except ValueError as ve:
-                print("Error in hard example mining:", ve)
-                continue
-
-            # Debug prints for hard indices.
-            # Uncomment if needed:
-            # print("Hard indices:", hard_indices)
-            # print("Batch size:", img.shape[0])
-
-            # Check if hard_indices is empty
-            if hard_indices.numel() == 0:
-                # Skip hard mining if no indices found
-                pass
-            else:
-                # Optionally, only use hard examples for loss computation.
-                img = img[hard_indices]
-                label = label[hard_indices]
-                depth_true = depth_true[hard_indices]
-                scaled_logits = scaled_logits[hard_indices]
-                depth_pred = depth_pred[hard_indices]
-
             loss = loss_func(scaled_logits, label, depth_pred, depth_true)
             optimizer.zero_grad()
             loss.backward()
