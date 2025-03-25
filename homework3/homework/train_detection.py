@@ -69,7 +69,7 @@ class CombinedLoss(nn.Module):
         self.focal_loss = FocalLoss(logits=True)
         self.dice_loss = DiceLoss()
         if class_weights is None:
-            class_weights = torch.tensor([1.0, 50.0, 50.0], dtype=torch.float32)
+            class_weights = torch.tensor([1.0, 20.0, 20.0], dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
@@ -356,7 +356,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             if label.ndim == 4 and label.shape[1] == 1:
                 label = label.squeeze(1)
 
-            temperature = 2.0
+            temperature = 1.27
             scaled_logits = normalized_logits / temperature
             # Ensure spatial dimensions match:
             if scaled_logits.shape[2:] != label.shape[1:]:
@@ -401,7 +401,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
                 print("Original softmax means:", probs_orig)
 
                 # Apply temperature scaling
-                temperature = 2.0
+                temperature = 1.17
                 scaled_logits = normalized_logits / temperature
                 probs_scaled = torch.softmax(scaled_logits, dim=1).mean(dim=(0, 2, 3))
                 print("Scaled softmax means:", probs_scaled)
