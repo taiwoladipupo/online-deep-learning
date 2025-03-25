@@ -255,9 +255,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-
-
-
     train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size, num_workers=2)
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
@@ -281,6 +278,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
 
     global_step = 0
     best_miou = 0
+    val_losses = []
 
     for epoch in range(num_epoch):
         loss_func.set_epoch(epoch)
@@ -292,21 +290,15 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
             label = batch["track"].to(device)
             depth_true = batch["depth"].to(device)
 
-            # print("\n=== DEBUG TRAIN BATCH ===")
-            # print("label shape:", label.shape)
-            # print("label min:", label.min().item(), "label max:", label.max().item())
-            # print("label unique:", torch.unique(label))
-            # print("=========================")
-
             logits, depth_pred = model(img)
-            # print("logits shape:", logits.shape)
-            # print("label shape:", label.shape)
             if label.ndim == 4 and label.shape[1] == 1:
-                print("Squeezing label from shape", label.shape)
                 label = label.squeeze(1)
-            # Resize logits to match label shape
             if logits.shape[2:] != label.shape[1:]:
                 logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
+
+            # Ensure depth predictions are resized to match depth labels
+            if depth_pred.shape[-2:] != depth_true.shape[-2:]:
+                depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
 
             loss = loss_func(logits, label, depth_pred, depth_true)
 
@@ -331,34 +323,19 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
                 label = batch["track"].to(device)
                 depth_true = batch["depth"].to(device)
 
-                # print("\n=== DEBUG VAL BATCH ===")
-                # print("label shape:", label.shape)
-                # print("label min:", label.min().item(), "label max:", label.max().item())
-                # print("label unique:", torch.unique(label))
-                # print("=========================")
                 logits, depth_pred = model(img)
-
                 if logits.shape[2:] != label.shape[1:]:
                     logits = F.interpolate(logits, size=label.shape[1:], mode='bilinear', align_corners=False)
+
+                # Ensure depth predictions are resized to match depth labels
+                if depth_pred.shape[-2:] != depth_true.shape[-2:]:
+                    depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
+
                 loss = loss_func(logits, label, depth_pred, depth_true)
                 val_losses.append(loss.item())
 
                 pred = logits.argmax(dim=1)
                 confusion_matrix.add(pred, label)
-                # Match spatial sizes before L1 loss
-                if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
-                    depth_pred = depth_pred.squeeze(1)
-                if depth_true.ndim == 4 and depth_true.shape[1] == 1:
-                    depth_true = depth_true.squeeze(1)
-                if depth_pred.shape != depth_true.shape:
-                    depth_pred = F.interpolate(
-                        depth_pred.unsqueeze(1),
-                        size=depth_true.shape[-2:],
-                        mode='bilinear',
-                        align_corners=False
-                    ).squeeze(1)
-
-
                 depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
 
             avg_probs = F.softmax(logits, dim=1).mean(dim=(0, 2, 3))
