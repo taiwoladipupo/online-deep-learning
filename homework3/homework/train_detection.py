@@ -343,7 +343,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                            align_corners=False).squeeze(1)
-            temperature = 0.5
+            temperature = 2.0
             scaled_logits = logits / temperature
             loss = loss_func(scaled_logits, label, depth_pred, depth_true)
             print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
