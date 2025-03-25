@@ -101,7 +101,7 @@ class FocalTverskyLoss(nn.Module):
 
 class CombinedLoss(nn.Module):
     def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
-                 seg_loss_weight=1.0, depth_loss_weight=0.0):
+                 seg_loss_weight=1.0, depth_loss_weight=0.0, class_weights=None):
         """
         Combined loss for segmentation (using Focal Tversky Loss) and optional depth regression.
 
@@ -123,7 +123,7 @@ class CombinedLoss(nn.Module):
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
         self.use_focal_loss = use_focal_loss
-
+        self.class_weights = class_weights
         if self.use_focal_loss:
             self.seg_loss = FocalTverskyLoss(alpha=0.7, beta=0.3, gamma=1.33)
         else:
@@ -222,7 +222,25 @@ def warmup_scheduler(optimizer, warmup_epochs=3):
         return float(epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
+def calculate_class_weights(data_loader):
+    """
+    Calculate class weights based on the inverse frequency of each class in the dataset.
 
+    Args:
+        data_loader: DataLoader object for the training dataset.
+
+    Returns:
+        class_weights: Tensor containing the weight for each class.
+    """
+    all_labels = []
+    for batch in data_loader:
+        labels = batch["track"].view(-1)
+        all_labels.extend(labels.cpu().numpy())
+    all_labels = np.array(all_labels)
+    unique, counts = np.unique(all_labels, return_counts=True)
+    total_counts = np.sum(counts)
+    class_weights = total_counts / (len(unique) * counts)
+    return torch.tensor(class_weights, dtype=torch.float32)
 
 def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
@@ -234,19 +252,26 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
     logger = tb.SummaryWriter(log_dir)
 
     model = load_model(model_name, **kwargs).to(device)
+
+
+
+
+    train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size, num_workers=2)
+    val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
+
+    # Calculate class weights
+    class_weights = calculate_class_weights(train_data)
     loss_func = CombinedLoss(
         device=device,
         total_epochs=num_epoch,
         use_focal_loss=True,
         seg_loss_weight=1.0,
-        depth_loss_weight=0.0
+        depth_loss_weight=0.0,
+        class_weights=class_weights,
     )
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     scheduler = warmup_scheduler(optimizer)
-
-    train_data = load_data("drive_data/train", transform_pipeline="aug", shuffle=True, batch_size=batch_size, num_workers=2)
-    val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
     print("Verifying training labels...")
     visualize_sample(train_data, num_samples=1)
