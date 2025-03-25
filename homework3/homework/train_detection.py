@@ -165,30 +165,30 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     # Debugging: Print track values for a few samples from the training dataset
     print("Training dataset track values:")
-    for i in range(5):
-        print(f"Sample {i} track value: {train_dataset[i]['track']}")
+    # for i in range(5):
+    #     print(f"Sample {i} track value: {train_dataset[i]['track']}")
 
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
     train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
-    print(f"Loaded {len(train_dataset)} training samples.")
-    print(
-        f"Sample data shape: {train_dataset[0]['image'].shape}, {train_dataset[0]['track'].shape}, {train_dataset[0]['depth'].shape}")
+    # print(f"Loaded {len(train_dataset)} training samples.")
+    # print(
+    #     f"Sample data shape: {train_dataset[0]['image'].shape}, {train_dataset[0]['track'].shape}, {train_dataset[0]['depth'].shape}")
 
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
 
     # Debugging: Print track values for a few samples from the validation dataset
     print("Validation dataset track values:")
-    for i, sample in enumerate(val_data):
-        if i >= 5:
-            break
-        print(f"Sample {i} track value: {sample['track']}")
-
-    print(f"Loaded {len(val_data)} validation samples.")
-    print(
-        f"Sample data shape: {next(iter(val_data))['image'].shape}, {next(iter(val_data))['track'].shape}, {next(iter(val_data))['depth'].shape}")
-
+    # for i, sample in enumerate(val_data):
+    #     if i >= 5:
+    #         break
+    #     print(f"Sample {i} track value: {sample['track']}")
+    #
+    # print(f"Loaded {len(val_data)} validation samples.")
+    # print(
+    #     f"Sample data shape: {next(iter(val_data))['image'].shape}, {next(iter(val_data))['track'].shape}, {next(iter(val_data))['depth'].shape}")
+    #
 
     model = load_model(model_name, **kwargs).to(device)
 
