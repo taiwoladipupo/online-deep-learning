@@ -76,7 +76,7 @@ class TverskyLoss(nn.Module):
 
 
 class FocalTverskyLoss(nn.Module):
-    def __init__(self, alpha=0.3, beta=0.7, gamma=1.33, smooth=1e-6):
+    def __init__(self, alpha=0.7, beta=0.3, gamma=1.33, smooth=1e-6):
         """
         Focal Tversky Loss for segmentation.
         """
