@@ -278,6 +278,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
 
     global_step = 0
     best_miou = 0
+    val_losses = []
 
     for epoch in range(num_epoch):
         loss_func.set_epoch(epoch)
