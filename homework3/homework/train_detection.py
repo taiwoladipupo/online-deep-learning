@@ -108,6 +108,23 @@ class CombinedLoss(nn.Module):
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
+
+def hard_example_mining(logits, labels, ratio=0.7):
+    """
+    Selects the hardest examples based on the loss value.
+    Args:
+        logits: Predicted logits from the model.
+        labels: Ground truth labels.
+        ratio: Ratio of hard examples to select.
+    Returns:
+        Selected hard examples.
+    """
+    with torch.no_grad():
+        loss = F.cross_entropy(logits, labels, reduction='none')
+        num_hard = int(ratio * len(loss))
+        _, hard_indices = torch.topk(loss, num_hard)
+    return hard_indices
+
 def compute_sample_weights(dataset):
     weights = []
     for i in range(len(dataset)):
@@ -373,6 +390,27 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                            align_corners=False).squeeze(1)
 
+                # Select hard examples
+                hard_indices = hard_example_mining(scaled_logits, label)
+                img = img[hard_indices]
+                label = label[hard_indices]
+                depth_true = depth_true[hard_indices]
+                scaled_logits = scaled_logits[hard_indices]
+                depth_pred = depth_pred[hard_indices]
+
+                loss = loss_func(scaled_logits, label, depth_pred, depth_true)
+                # print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
+                # print("Logit min, max:", logits.min(), logits.max())
+
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+                optimizer.step()
+
+                train_losses.append(loss.item())
+                logger.add_scalar("train/total_loss", loss.item(), global_step)
+                global_step += 1
+
             loss = loss_func(scaled_logits, label, depth_pred, depth_true)
             # print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
             # print("Logit min, max:", logits.min(), logits.max())
@@ -412,7 +450,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
                 temperature = 1.8
                 scaled_logits = normalized_logits / temperature
                 probs_scaled = torch.softmax(scaled_logits, dim=1).mean(dim=(0, 2, 3))
-                print("Scaled softmax means:", probs_scaled)
+                # print("Scaled softmax means:", probs_scaled)
 
                 if scaled_logits.shape[2:] != label.shape[1:]:
                     scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear',
