@@ -120,10 +120,18 @@ def hard_example_mining(logits, labels, ratio=0.7):
         Selected hard examples.
     """
     with torch.no_grad():
-        loss = F.cross_entropy(logits, labels, reduction='none')
+        # Move logits and labels to CPU for debugging
+        logits_cpu = logits.cpu()
+        labels_cpu = labels.cpu()
+
+        # Check the range of labels
+        if labels_cpu.min() < 0 or labels_cpu.max() >= logits_cpu.size(1):
+            raise ValueError(f"Labels out of range: min={labels_cpu.min()}, max={labels_cpu.max()}")
+
+        loss = F.cross_entropy(logits_cpu, labels_cpu, reduction='none')
         num_hard = int(ratio * len(loss))
         _, hard_indices = torch.topk(loss, num_hard)
-    return hard_indices
+    return hard_indices.to(logits.device)  # Move indices back to the original devicees
 
 def compute_sample_weights(dataset):
     weights = []
