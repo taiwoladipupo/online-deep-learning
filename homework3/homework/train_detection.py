@@ -79,7 +79,6 @@ class FocalTverskyLoss(nn.Module):
     def __init__(self, alpha=0.3, beta=0.7, gamma=1.33, smooth=1e-6):
         """
         Focal Tversky Loss for segmentation.
-        This loss focuses on hard examples and balances false positives and false negatives.
         """
         super(FocalTverskyLoss, self).__init__()
         self.alpha = alpha
@@ -101,25 +100,39 @@ class FocalTverskyLoss(nn.Module):
 
 
 class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=25, seg_loss_weight=1.0, depth_loss_weight=0.0):
+    def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
+                 seg_loss_weight=1.0, depth_loss_weight=0.0):
         """
-        Combined loss for segmentation and optional depth regression.
-        Uses Focal Tversky Loss for segmentation.
-        Assumes:
+        Combined loss for segmentation (using Focal Tversky Loss) and optional depth regression.
+
+        Assumes dataset encoding:
           - Background: label 0 (dominant)
           - Rare classes: labels 1 and 2 (lane boundaries)
-        You can adjust hyperparameters and also add a weighted cross-entropy term if desired.
+        You can adjust hyperparameters as needed.
+
+        Args:
+            device (torch.device): device to run the loss on.
+            total_epochs (int): total training epochs.
+            use_focal_loss (bool): if True, use Focal Tversky Loss; otherwise, use standard Tversky Loss.
+            seg_loss_weight (float): weight for the segmentation loss.
+            depth_loss_weight (float): weight for the depth regression loss.
         """
         super().__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
+        self.use_focal_loss = use_focal_loss
 
-        # Optionally, you could register class weights and use them in a combined loss.
-        # For now, we use Focal Tversky Loss which focuses on overlap quality.
-        self.seg_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.33)
+        if self.use_focal_loss:
+            self.seg_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.33)
+        else:
+            # Alternatively, you can define a plain TverskyLoss if desired.
+            # For now, we use FocalTverskyLoss as default.
+            self.seg_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.33)
+
         self.depth_loss = nn.L1Loss()
+
         if device:
             self.to(device)
 
@@ -130,9 +143,13 @@ class CombinedLoss(nn.Module):
         device = logits.device
         target = target.to(device)
         depth_true = depth_true.to(device)
+
+        # Ensure logits have the same spatial dimensions as target.
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
+
         seg_loss_val = self.seg_loss(logits, target)
+
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
@@ -141,6 +158,7 @@ class CombinedLoss(nn.Module):
             depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                        align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
+
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 def visualize_sample(data_loader, num_samples=1):
