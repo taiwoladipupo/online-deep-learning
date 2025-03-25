@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.tensorboard as tb
+from torch import device
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 import matplotlib.pyplot as plt
 import torchvision.models as models
@@ -165,7 +166,7 @@ class WeightedLovaszSoftmaxLoss(nn.Module):
         probas = torch.softmax(logits, dim=1)
         loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
         if self.class_weights is not None:
-            weights = self.class_weights[labels.view(-1)]
+            weights = self.class_weights.to(device)[labels.view(-1)]
             loss = loss * weights
         return loss.mean()
 
