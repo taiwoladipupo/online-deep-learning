@@ -244,7 +244,7 @@ def calculate_class_weights(data_loader):
     class_weights = total_counts / (len(unique) * counts)
     return torch.tensor(class_weights, dtype=torch.float32)
 
-def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
+def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
