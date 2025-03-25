@@ -4,9 +4,7 @@ import torch.nn.functional as F
 import torch.utils.tensorboard as tb
 from pathlib import Path
 from datetime import datetime
-from collections import Counter
-
-from sympy.physics.control.control_plots import plt
+import matplotlib.pyplot as plt
 
 from .metrics import ConfusionMatrix
 from .models import load_model, save_model
@@ -21,137 +19,92 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class AggressiveFocalTverskyLoss(nn.Module):
-    def __init__(self, alpha=0.9, beta=0.1, gamma=1.5, smooth=1e-6):
+
+def lovasz_grad(gt_sorted):
+    """
+    Computes gradient of the Lovász extension with respect to sorted errors.
+    """
+    gts = gt_sorted.sum()
+    if gts == 0:
+        return torch.zeros_like(gt_sorted)
+    grad = (gts - gt_sorted.cumsum(0)) / gts
+    return grad
+
+
+def lovasz_softmax_flat(probas, labels):
+    """
+    Computes the Lovász-Softmax loss for a flat tensor of predictions and labels.
+
+    Args:
+        probas: [P, C] prediction probabilities
+        labels: [P] ground truth labels
+    Returns:
+        Scalar loss value.
+    """
+    losses = []
+    C = probas.size(1)
+    for c in range(C):
+        fg = (labels == c).float()  # foreground for class c
+        if fg.sum() == 0:
+            continue
+        class_pred = probas[:, c]
+        errors = (fg - class_pred).abs()
+        errors_sorted, perm = torch.sort(errors, descending=True)
+        fg_sorted = fg[perm]
+        grad = lovasz_grad(fg_sorted)
+        losses.append(torch.dot(errors_sorted, grad))
+    if losses:
+        return torch.mean(torch.stack(losses))
+    return torch.tensor(0.0, device=probas.device)
+
+
+class LovaszSoftmaxLoss(nn.Module):
+    def __init__(self, per_image=True, ignore=None):
         """
-        Aggressive Focal Tversky Loss for segmentation.
-        Parameters are tuned to heavily penalize false negatives (missing rare-class pixels).
+        Lovász-Softmax loss (simplified implementation).
+
+        Args:
+            per_image (bool): whether to compute the loss per image.
+            ignore: label to ignore.
         """
-        super(AggressiveFocalTverskyLoss, self).__init__()
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-        self.smooth = smooth
+        super(LovaszSoftmaxLoss, self).__init__()
+        self.per_image = per_image
+        self.ignore = ignore
 
-    def forward(self, logits, target):
-        num_classes = logits.shape[1]
-        probs = torch.softmax(logits, dim=1)
-        target_one_hot = F.one_hot(target, num_classes=num_classes).permute(0,3,1,2).float()
-        dims = (2,3)
-        TP = (probs * target_one_hot).sum(dim=dims)
-        FP = (probs * (1 - target_one_hot)).sum(dim=dims)
-        FN = ((1 - probs) * target_one_hot).sum(dim=dims)
-        tversky_index = (TP + self.smooth) / (TP + self.alpha * FN + self.beta * FP + self.smooth)
-        focal_tversky = (1 - tversky_index) ** self.gamma
-        return focal_tversky.mean()
-
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-
-    def forward(self, inputs, targets):
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
-        pt = torch.exp(-ce_loss)
-        focal_loss = (1 - pt) ** self.gamma * ce_loss
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        else:
-            return focal_loss
-
-class DiceLoss(nn.Module):
-    def __init__(self, smooth=1e-6):
-        super(DiceLoss, self).__init__()
-        self.smooth = smooth
-
-    def forward(self, logits, target):
-        # logits: (B, C, H, W), target: (B, H, W)
-        probs = torch.softmax(logits, dim=1)
-        target_one_hot = F.one_hot(target, num_classes=probs.shape[1])
-        target_one_hot = target_one_hot.permute(0, 3, 1, 2).float()
-        intersection = (probs * target_one_hot).sum(dim=(0, 2, 3))
-        union = probs.sum(dim=(0, 2, 3)) + target_one_hot.sum(dim=(0, 2, 3))
-        dice = (2. * intersection + self.smooth) / (union + self.smooth)
-        return 1 - dice.mean()
-
-class TverskyLoss(nn.Module):
-    def __init__(self, alpha=0.3, beta=0.7, smooth=1e-6):
-        super(TverskyLoss, self).__init__()
-        self.alpha = alpha
-        self.beta = beta
-        self.smooth = smooth
-    def forward(self, logits, target):
-        # logits: (B, C, H, W), target: (B, H, W)
-        num_classes = logits.shape[1]
-        probs = torch.softmax(logits, dim=1)
-        target_one_hot = F.one_hot(target, num_classes=num_classes).permute(0, 3, 1, 2).float()
-        TP = (probs * target_one_hot).sum(dim=(2, 3))
-        FP = (probs * (1 - target_one_hot)).sum(dim=(2, 3))
-        FN = ((1 - probs) * target_one_hot).sum(dim=(2, 3))
-        tversky_index = (TP + self.smooth) / (TP + self.alpha * FN + self.beta * FP + self.smooth)
-        loss = 1 - tversky_index.mean()
+    def forward(self, logits, labels):
+        """
+        Args:
+            logits: tensor of shape (B, C, H, W)
+            labels: tensor of shape (B, H, W)
+        Returns:
+            Scalar loss value.
+        """
+        probas = torch.softmax(logits, dim=1)
+        loss = lovasz_softmax_flat(probas.view(-1, logits.size(1)), labels.view(-1))
         return loss
 
 
-class FocalTverskyLoss(nn.Module):
-    def __init__(self, alpha=0.7, beta=0.3, gamma=1.33, smooth=1e-6):
+# --- Combined Loss using Lovász-Softmax for segmentation ---
+
+class LovaszCombinedLoss(nn.Module):
+    def __init__(self, device=None, total_epochs=25, seg_loss_weight=1.0, depth_loss_weight=0.0):
         """
-        Focal Tversky Loss for segmentation.
-        """
-        super(FocalTverskyLoss, self).__init__()
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-        self.smooth = smooth
-
-    def forward(self, logits, target):
-        num_classes = logits.shape[1]
-        probs = torch.softmax(logits, dim=1)
-        target_one_hot = F.one_hot(target, num_classes=num_classes).permute(0, 3, 1, 2).float()
-        dims = (2, 3)
-        TP = (probs * target_one_hot).sum(dim=dims)
-        FP = (probs * (1 - target_one_hot)).sum(dim=dims)
-        FN = ((1 - probs) * target_one_hot).sum(dim=dims)
-        tversky_index = (TP + self.smooth) / (TP + self.alpha * FN + self.beta * FP + self.smooth)
-        focal_tversky = (1 - tversky_index) ** self.gamma
-        return focal_tversky.mean()
-
-
-class AggressiveCombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=25, seg_loss_weight=1.0,
-                 depth_loss_weight=0.0, ce_weight=0.4):
-        """
-        Aggressive combined loss for segmentation and depth regression.
-
-        Segmentation loss is computed as a combination of:
-          - Aggressive Focal Tversky Loss (penalizes false negatives strongly)
-          - Weighted Cross-Entropy Loss with aggressive class weights (background: 1.0, rare classes: 100.0)
+        Combined loss for segmentation and optional depth regression.
+        Uses Lovász-Softmax loss for segmentation and L1 loss for depth.
 
         Args:
-            device (torch.device): Device on which to run the loss.
-            total_epochs (int): Total number of training epochs.
-            seg_loss_weight (float): Weight for the segmentation loss.
-            depth_loss_weight (float): Weight for the depth regression loss.
-            ce_weight (float): Fraction weight for the cross-entropy component.
-                          (1 - ce_weight) is used for the focal Tversky loss.
+            device (torch.device): device to run the loss on.
+            total_epochs (int): total training epochs.
+            seg_loss_weight (float): weight for segmentation loss.
+            depth_loss_weight (float): weight for depth regression loss.
         """
-        super(AggressiveCombinedLoss, self).__init__()
+        super(LovaszCombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
-        self.ce_weight = ce_weight
 
-        # Aggressive Focal Tversky Loss with parameters tuned for rare classes.
-        self.ft_loss = AggressiveFocalTverskyLoss(alpha=0.9, beta=0.1, gamma=1.5)
-        # Aggressive weighted Cross-Entropy Loss.
-        self.register_buffer("class_weights", torch.tensor([1.0, 100.0, 100.0], dtype=torch.float32))
-        self.ce_loss = nn.CrossEntropyLoss(weight=self.class_weights)
-        # Depth regression loss.
+        self.seg_loss = LovaszSoftmaxLoss()
         self.depth_loss = nn.L1Loss()
 
         if device:
@@ -161,33 +114,18 @@ class AggressiveCombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
-        """
-        Computes the combined loss.
-
-        Args:
-            logits: segmentation logits (B, C, H, W)
-            target: ground truth segmentation mask (B, H, W)
-            depth_pred: predicted depth (B, h, w) or (B, 1, h, w)
-            depth_true: ground truth depth (B, h, w) or (B, 1, h, w)
-        Returns:
-            Scalar loss value.
-        """
         device = logits.device
         target = target.to(device)
         depth_true = depth_true.to(device)
 
-        # Ensure logits and target have matching spatial dimensions.
+        # Ensure logits match target spatial dimensions
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
-        # Compute aggressive focal Tversky loss.
-        ft_loss_val = self.ft_loss(logits, target)
-        # Compute weighted cross-entropy loss.
-        ce_loss_val = self.ce_loss(logits, target)
-        # Combine segmentation losses.
-        seg_loss_val = (1 - self.ce_weight) * ft_loss_val + self.ce_weight * ce_loss_val
+        # Compute Lovász-Softmax loss for segmentation
+        seg_loss_val = self.seg_loss(logits, target)
 
-        # Process depth predictions.
+        # Process depth predictions
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
@@ -296,12 +234,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
 
     # Calculate class weights
     class_weights = calculate_class_weights(train_data)
-    loss_func = AggressiveCombinedLoss(
+    loss_func = LovaszCombinedLoss(
         device=device,
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
-        depth_loss_weight=0.0,
-        ce_weight=0.4
+        depth_loss_weight=0.0
     )
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
