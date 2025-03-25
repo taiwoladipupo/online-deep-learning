@@ -121,24 +121,32 @@ def get_val_transforms():
                     std=[0.229, 0.224, 0.225])
     ])
 
+# Sample Weights
 
 def compute_sample_weights(dataset):
-    # Flatten the 'track' arrays and convert to integers
-    flattened_tracks = [int(item) for sample in dataset for item in sample['track'].flatten()]
+    """
+    Compute one weight per image sample based on the ratio of rare pixels (labels 1 and 2)
+    to total pixels in the 'track' mask.
 
-    # Compute class counts
-    class_counts = np.bincount(flattened_tracks)
-    total_samples = len(flattened_tracks)
+    Args:
+        dataset: A dataset where each sample is a dictionary with key 'track'
+                 corresponding to the segmentation mask (assumed to be a NumPy array or similar).
 
-    # Compute class weights
-    class_weights = total_samples / (len(class_counts) * class_counts)
-
-    # Normalize class weights to avoid large values
-    class_weights = class_weights / class_weights.sum()
-
-    # Compute sample weights
-    sample_weights = [class_weights[int(item)] for sample in dataset for item in sample['track'].flatten()]
-
+    Returns:
+        sample_weights: A list of floats, one per image sample.
+    """
+    sample_weights = []
+    epsilon = 1e-6
+    for sample in dataset:
+        # Assume sample['track'] is a numpy array of shape (H, W) with integer labels {0,1,2}
+        mask = sample['track']
+        total_pixels = mask.size
+        # Count the number of pixels with label 1 or 2 (rare classes)
+        rare_pixels = np.sum((mask == 1) | (mask == 2))
+        rare_ratio = rare_pixels / total_pixels
+        # Compute weight: if there are few rare pixels, the sample gets a higher weight.
+        weight = 1.0 / (rare_ratio + epsilon)
+        sample_weights.append(weight)
     return sample_weights
 
     return sample_weights
