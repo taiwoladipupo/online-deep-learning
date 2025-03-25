@@ -287,10 +287,10 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             logits, depth_pred = model(img)
 
             # Print statistics for debugging
-            probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
-            print("Original softmax means:", probs_orig)
-            print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
-            print("Logit min, max:", logits.min(), logits.max())
+            # probs_orig = torch.softmax(logits, dim=1).mean(dim=(0, 2, 3))
+            # print("Original softmax means:", probs_orig)
+            # print("Logit means per channel:", logits.mean(dim=(0, 2, 3)))
+            # print("Logit min, max:", logits.min(), logits.max())
 
             # Temperature scaling for smoother gradients
             temperature = 2.0
