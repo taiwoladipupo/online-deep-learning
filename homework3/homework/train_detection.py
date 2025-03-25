@@ -347,6 +347,22 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-5,
 
     # Calculate class weights for the loss function (should be close to (1.0,80.0,100.0) as desired).
     class_weights = torch.tensor([1.0, 150.0, 200.0], dtype=torch.float32).to(device)
+
+    # Calculate class frequencies
+    all_labels = []
+    for batch in train_data:
+        labels = batch["track"].view(-1)
+        all_labels.extend(labels.cpu().numpy())
+    all_labels = np.array(all_labels)
+    unique, counts = np.unique(all_labels, return_counts=True)
+    freq = counts / np.sum(counts)
+    max_freq = np.max(freq)
+    # Option 1: Clip weights
+    class_weights = np.clip(max_freq / freq, 1, 250)
+
+    # Option 2: Use a power transformation
+    #class_weights = (max_freq / freq) ** 0.5
+
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
@@ -355,7 +371,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-5,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
         ce_weight=0.9,
-        dice_weight=0.1,
+        dice_weight=0.3,
         class_weights=class_weights  # Use (1.0,80.0,100.0) or your computed values
     )
 
