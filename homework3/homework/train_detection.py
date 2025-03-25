@@ -327,7 +327,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
     model = load_model(model_name, **kwargs).to(device)
 
     # Calculate class weights for the loss function.
-    class_weights = calculate_class_weights(train_data)
+    class_weights = torch.tensor([1.0, 20.0, 20.0], dtype=torch.float32).to(device)
     loss_func = LovaszCrossEntropyCombinedLoss(
         device=device,
         total_epochs=num_epoch,
