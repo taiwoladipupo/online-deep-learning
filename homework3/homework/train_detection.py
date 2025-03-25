@@ -147,6 +147,9 @@ class LovaszCombinedLoss(nn.Module):
                                        align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
 
+        # Normalize depth loss
+        depth_loss_val = depth_loss_val / torch.max(depth_true)
+
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 
