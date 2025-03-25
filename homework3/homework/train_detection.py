@@ -83,7 +83,8 @@ class CombinedLoss(nn.Module):
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
         ce_loss_val = self.ce_loss(logits, target)
-        seg_loss_val = self.ce_weight * ce_loss_val
+        focal_loss_val = self.focal_loss(logits, F.one_hot(target, num_classes=logits.shape[-1]).float())
+        seg_loss_val = self.ce_weight * ce_loss_val + (1 - self.ce_weight) * focal_loss_val
 
         if self.dice_weight > 0:
             one_hot_target = F.one_hot(target, num_classes=logits.size(1)).permute(0, 3, 1, 2).float()
