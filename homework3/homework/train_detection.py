@@ -218,6 +218,14 @@ def calculate_class_weights(data_loader):
     class_weights = total_counts / (len(unique) * counts)
     return torch.tensor(class_weights, dtype=torch.float32)
 
+import torch
+import torch.nn.functional as F
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.tensorboard import SummaryWriter
+from pathlib import Path
+from datetime import datetime
+import numpy as np
+
 def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
           batch_size=16, seed=2024, transform_pipeline="default", **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -225,7 +233,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
     np.random.seed(seed)
 
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
-    logger = tb.SummaryWriter(log_dir)
+    logger = SummaryWriter(log_dir)
 
     model = load_model(model_name, **kwargs).to(device)
 
@@ -282,8 +290,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
             logger.add_scalar("train/total_loss", loss.item(), global_step)
             global_step += 1
 
-        scheduler.step(np.mean(val_losses))
-
         # Validation
         model.eval()
         val_losses, depth_errors = [], []
@@ -338,8 +344,10 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
             logger.add_scalar("val/depth_mae", mean_depth_mae, epoch)
 
             print(f"Epoch {epoch+1:2d}/{num_epoch:2d} - Train loss: {np.mean(train_losses):.4f}, Val loss: {np.mean(val_losses):.4f}")
-    save_model(model)
 
+        scheduler.step(np.mean(val_losses))
+
+    save_model(model)
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
 
