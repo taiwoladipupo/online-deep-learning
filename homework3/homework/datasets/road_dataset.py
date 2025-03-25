@@ -85,7 +85,7 @@ def load_data(
     num_workers: int = 2,
     batch_size: int = 32,
     shuffle: bool = False,
-) -> DataLoader | Dataset:
+) -> Union[DataLoader, Dataset]:
     """
     Constructs the dataset/dataloader.
     The specified transform_pipeline must be implemented in the RoadDataset class.
@@ -114,6 +114,12 @@ def load_data(
 
     print(f"Loaded {len(dataset)} samples from {len(datasets)} episodes")
 
+    # Print a few samples to inspect
+    for i in range(5):
+        sample = dataset[i]
+        print(f"Sample {i} - Image shape: {sample['image'].shape}, Track shape: {sample['track'].shape}, Depth shape: {sample['depth'].shape}")
+        print(f"Sample {i} - Track values: {sample['track']}")
+
     if not return_dataloader:
         return dataset
 
@@ -123,4 +129,3 @@ def load_data(
         batch_size=batch_size,
         shuffle=shuffle,
     )
-
