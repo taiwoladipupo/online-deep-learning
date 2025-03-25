@@ -113,10 +113,16 @@ class CombinedLoss(nn.Module):
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
+
 def hard_example_mining(logits, labels, ratio=0.7):
     """
-    Selects the hardest examples based on the cross-entropy loss.
-    Returns indices of the hardest examples in the batch.
+    Selects the hardest examples based on the loss value.
+    Args:
+        logits: Predicted logits from the model.
+        labels: Ground truth labels.
+        ratio: Ratio of hard examples to select.
+    Returns:
+        Selected hard examples.
     """
     with torch.no_grad():
         logits_cpu = logits.cpu()
@@ -128,11 +134,15 @@ def hard_example_mining(logits, labels, ratio=0.7):
 
         loss = F.cross_entropy(logits_cpu, labels_cpu, reduction='none')
         num_hard = int(ratio * loss.numel())
+
+        # Ensure num_hard does not exceed the number of elements in loss
+        num_hard = min(num_hard, loss.numel())
+
         if num_hard == 0:
             return torch.arange(loss.numel()).to(logits.device)
+
         _, hard_indices = torch.topk(loss, num_hard)
     return hard_indices.to(logits.device)
-
 def compute_sample_weights(dataset):
     weights = []
     for i in range(len(dataset)):
