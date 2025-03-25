@@ -57,7 +57,7 @@ class DiceLoss(nn.Module):
         return 1 - dice
 
 class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=0.6, dice_weight=0.0, class_weights=None):
+    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=1.0, dice_weight=0.0, class_weights=None):
         super(CombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
@@ -364,7 +364,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
             if label.ndim == 4 and label.shape[1] == 1:
                 label = label.squeeze(1)
 
-            temperature = 1.27
+            temperature = 1.8
             scaled_logits = normalized_logits / temperature
             # Ensure spatial dimensions match:
             if scaled_logits.shape[2:] != label.shape[1:]:
@@ -409,7 +409,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,  # lowe
                 # print("Original softmax means:", probs_orig)
 
                 # Apply temperature scaling
-                temperature = 1.17
+                temperature = 1.8
                 scaled_logits = normalized_logits / temperature
                 probs_scaled = torch.softmax(scaled_logits, dim=1).mean(dim=(0, 2, 3))
                 print("Scaled softmax means:", probs_scaled)
