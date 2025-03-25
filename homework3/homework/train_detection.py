@@ -62,7 +62,7 @@ class CombinedLoss(nn.Module):
         self.focal_loss = FocalLoss(alpha=0.7, gamma=0.3, logits=True)
         self.dice_loss = DiceLoss()
         if class_weights is None:
-            class_weights = torch.tensor([1.0, 150.0, 200.0], dtype=torch.float32)
+            class_weights = torch.tensor([0.01, 10.0, 10.0], dtype=torch.float32)
         else:
             class_weights = torch.tensor(class_weights, dtype=torch.float32)
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
