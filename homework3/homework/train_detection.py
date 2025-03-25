@@ -21,6 +21,30 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class AggressiveFocalTverskyLoss(nn.Module):
+    def __init__(self, alpha=0.9, beta=0.1, gamma=1.5, smooth=1e-6):
+        """
+        Aggressive Focal Tversky Loss for segmentation.
+        Parameters are tuned to heavily penalize false negatives (missing rare-class pixels).
+        """
+        super(AggressiveFocalTverskyLoss, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.smooth = smooth
+
+    def forward(self, logits, target):
+        num_classes = logits.shape[1]
+        probs = torch.softmax(logits, dim=1)
+        target_one_hot = F.one_hot(target, num_classes=num_classes).permute(0,3,1,2).float()
+        dims = (2,3)
+        TP = (probs * target_one_hot).sum(dim=dims)
+        FP = (probs * (1 - target_one_hot)).sum(dim=dims)
+        FN = ((1 - probs) * target_one_hot).sum(dim=dims)
+        tversky_index = (TP + self.smooth) / (TP + self.alpha * FN + self.beta * FP + self.smooth)
+        focal_tversky = (1 - tversky_index) ** self.gamma
+        return focal_tversky.mean()
+
 class FocalLoss(nn.Module):
     def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
         super(FocalLoss, self).__init__()
@@ -97,38 +121,37 @@ class FocalTverskyLoss(nn.Module):
         return focal_tversky.mean()
 
 
-class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=25, use_focal_loss=True,
-                 seg_loss_weight=1.0, depth_loss_weight=0.0, class_weights=None):
+class AggressiveCombinedLoss(nn.Module):
+    def __init__(self, device=None, total_epochs=25, seg_loss_weight=1.0,
+                 depth_loss_weight=0.0, ce_weight=0.4):
         """
-        Combined loss for segmentation (using Focal Tversky Loss) and optional depth regression.
+        Aggressive combined loss for segmentation and depth regression.
 
-        Assumes dataset encoding:
-          - Background: label 0 (dominant)
-          - Rare classes: labels 1 and 2 (lane boundaries)
-        You can adjust hyperparameters as needed.
+        Segmentation loss is computed as a combination of:
+          - Aggressive Focal Tversky Loss (penalizes false negatives strongly)
+          - Weighted Cross-Entropy Loss with aggressive class weights (background: 1.0, rare classes: 100.0)
 
         Args:
-            device (torch.device): device to run the loss on.
-            total_epochs (int): total training epochs.
-            use_focal_loss (bool): if True, use Focal Tversky Loss; otherwise, use standard Tversky Loss.
-            seg_loss_weight (float): weight for the segmentation loss.
-            depth_loss_weight (float): weight for the depth regression loss.
+            device (torch.device): Device on which to run the loss.
+            total_epochs (int): Total number of training epochs.
+            seg_loss_weight (float): Weight for the segmentation loss.
+            depth_loss_weight (float): Weight for the depth regression loss.
+            ce_weight (float): Fraction weight for the cross-entropy component.
+                          (1 - ce_weight) is used for the focal Tversky loss.
         """
-        super().__init__()
+        super(AggressiveCombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
         self.seg_loss_weight = seg_loss_weight
         self.depth_loss_weight = depth_loss_weight
-        self.use_focal_loss = use_focal_loss
-        self.class_weights = class_weights
-        if self.use_focal_loss:
-            self.seg_loss = FocalTverskyLoss(alpha=0.7, beta=0.3, gamma=1.33)
-        else:
-            # Alternatively, you can define a plain TverskyLoss if desired.
-            # For now, we use FocalTverskyLoss as default.
-            self.seg_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.33)
+        self.ce_weight = ce_weight
 
+        # Aggressive Focal Tversky Loss with parameters tuned for rare classes.
+        self.ft_loss = AggressiveFocalTverskyLoss(alpha=0.9, beta=0.1, gamma=1.5)
+        # Aggressive weighted Cross-Entropy Loss.
+        self.register_buffer("class_weights", torch.tensor([1.0, 100.0, 100.0], dtype=torch.float32))
+        self.ce_loss = nn.CrossEntropyLoss(weight=self.class_weights)
+        # Depth regression loss.
         self.depth_loss = nn.L1Loss()
 
         if device:
@@ -138,20 +161,33 @@ class CombinedLoss(nn.Module):
         self.current_epoch = epoch
 
     def forward(self, logits, target, depth_pred, depth_true):
+        """
+        Computes the combined loss.
+
+        Args:
+            logits: segmentation logits (B, C, H, W)
+            target: ground truth segmentation mask (B, H, W)
+            depth_pred: predicted depth (B, h, w) or (B, 1, h, w)
+            depth_true: ground truth depth (B, h, w) or (B, 1, h, w)
+        Returns:
+            Scalar loss value.
+        """
         device = logits.device
         target = target.to(device)
         depth_true = depth_true.to(device)
 
-        # Ensure logits have the same spatial dimensions as target.
+        # Ensure logits and target have matching spatial dimensions.
         if logits.shape[2:] != target.shape[1:]:
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
-        seg_loss_val = self.seg_loss(logits, target)
+        # Compute aggressive focal Tversky loss.
+        ft_loss_val = self.ft_loss(logits, target)
+        # Compute weighted cross-entropy loss.
+        ce_loss_val = self.ce_loss(logits, target)
+        # Combine segmentation losses.
+        seg_loss_val = (1 - self.ce_weight) * ft_loss_val + self.ce_weight * ce_loss_val
 
-        if self.class_weights is not None:
-            ce_loss = F.cross_entropy(logits, target, weight=self.class_weights.to(device))
-            seg_loss_val += ce_loss
-
+        # Process depth predictions.
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
@@ -260,13 +296,12 @@ def train(exp_dir="logs", model_name="detector", num_epoch=60, lr=5e-4,
 
     # Calculate class weights
     class_weights = calculate_class_weights(train_data)
-    loss_func = CombinedLoss(
+    loss_func = AggressiveCombinedLoss(
         device=device,
         total_epochs=num_epoch,
-        use_focal_loss=True,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
-        class_weights=class_weights,
+        ce_weight=0.4
     )
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
