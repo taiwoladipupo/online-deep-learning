@@ -1,6 +1,4 @@
 import argparse
-import torch
-import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 import torch.utils.tensorboard as tb
@@ -149,6 +147,10 @@ class CombinedLoss(nn.Module):
             logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
         seg_loss_val = self.seg_loss(logits, target)
+
+        if self.class_weights is not None:
+            ce_loss = F.cross_entropy(logits, target, weight=self.class_weights.to(device))
+            seg_loss_val += ce_loss
 
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
