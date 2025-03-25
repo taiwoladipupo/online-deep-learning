@@ -11,7 +11,7 @@ from sympy.physics.control.control_plots import plt
 from .metrics import ConfusionMatrix
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
-from torch.optim.lr_scheduler import _LRScheduler
+from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
 import os
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
@@ -273,7 +273,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
     )
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    scheduler = warmup_scheduler(optimizer)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
 
     print("Verifying training labels...")
     visualize_sample(train_data, num_samples=1)
@@ -318,7 +318,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=25, lr=5e-4,
             logger.add_scalar("train/total_loss", loss.item(), global_step)
             global_step += 1
 
-        scheduler.step()
+        scheduler.step(np.mean(val_losses))
 
         # Validation
         model.eval()

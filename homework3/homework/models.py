@@ -145,22 +145,27 @@ class Detector(nn.Module):
             nn.Conv2d(576, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,128,12,16)
             nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,64,24,32)
             nn.Conv2d(64, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,32,48,64)
             nn.Conv2d(32, 16, kernel_size=3, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # -> (B,16,96,128)
             nn.Conv2d(16, 16, kernel_size=3, padding=1),
             nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5)
         )
 
         # Separate heads:

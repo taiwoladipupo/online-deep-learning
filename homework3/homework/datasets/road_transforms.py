@@ -301,3 +301,63 @@ class ColorJitter:
         # Convert PIL Image back to numpy array
         sample['image'] = np.array(image).transpose(2, 0, 1) / 255.0
         return sample
+
+class RandomResizedCrop:
+    def __init__(self, size, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.)):
+        self.size = size
+        self.scale = scale
+        self.ratio = ratio
+
+    def __call__(self, sample):
+        image = sample['image']
+        depth = sample['depth']
+
+        # Convert numpy array to PIL Image
+        image = Image.fromarray((image * 255).astype(np.uint8).transpose(1, 2, 0))
+        depth = Image.fromarray((depth * 65535).astype(np.uint16))
+
+        # Get parameters for crop
+        i, j, h, w = self.get_params(image, self.scale, self.ratio)
+
+        # Crop and resize image
+        image = image.crop((j, i, j + w, i + h)).resize((self.size, self.size), Image.BILINEAR)
+        depth = depth.crop((j, i, j + w, i + h)).resize((self.size, self.size), Image.NEAREST)
+
+        # Convert back to numpy array
+        sample['image'] = np.array(image).transpose(2, 0, 1) / 255.0
+        sample['depth'] = np.array(depth) / 65535.0
+
+        return sample
+
+    @staticmethod
+    def get_params(img, scale, ratio):
+        width, height = img.size
+        area = height * width
+
+        for _ in range(10):
+            target_area = random.uniform(*scale) * area
+            log_ratio = (np.log(ratio[0]), np.log(ratio[1]))
+            aspect_ratio = np.exp(random.uniform(*log_ratio))
+
+            w = int(round(np.sqrt(target_area * aspect_ratio)))
+            h = int(round(np.sqrt(target_area / aspect_ratio)))
+
+            if w <= width and h <= height:
+                i = random.randint(0, height - h)
+                j = random.randint(0, width - w)
+                return i, j, h, w
+
+        # Fallback to central crop
+        in_ratio = float(width) / float(height)
+        if in_ratio < min(ratio):
+            w = width
+            h = int(round(w / min(ratio)))
+        elif in_ratio > max(ratio):
+            h = height
+            w = int(round(h * max(ratio)))
+        else:
+            w = width
+            h = height
+        i = (height - h) // 2
+        j = (width - w) // 2
+        return i, j, h, w
