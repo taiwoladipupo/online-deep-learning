@@ -51,6 +51,7 @@ class DetectionMetric:
         self.tp_depth_error_n = 0
 
     @torch.no_grad()
+
     def add(self, preds: torch.Tensor, labels: torch.Tensor, depth_preds: torch.Tensor, depth_labels: torch.Tensor):
         """
         Args:
@@ -59,39 +60,39 @@ class DetectionMetric:
             depth_preds (torch.FloatTensor): (b, h, w) with depth predictions.
             depth_labels (torch.FloatTensor): (b, h, w) with ground truth depth.
         """
-
-        # Ensure depth tensors are 4D: [N, C, H, W]. If 3D, add a channel dimension.
+        # Ensure depth tensors are 4D: [N, C, H, W]. If they are 3D, add a channel.
         if depth_preds.ndim == 3:
             depth_preds = depth_preds.unsqueeze(1)
         if depth_labels.ndim == 3:
             depth_labels = depth_labels.unsqueeze(1)
 
-        # Use the spatial size of depth_labels as the target size.
-        target_size = depth_labels.shape[-2:]  # (H, W) of depth_labels
-
+        # Define a common target size for depth maps, e.g., using the ground truth depth's size.
+        target_size = depth_labels.shape[-2:]  # (H, W) from depth_labels
         depth_preds = F.interpolate(depth_preds, size=target_size, mode='bilinear', align_corners=False)
         depth_labels = F.interpolate(depth_labels, size=target_size, mode='bilinear', align_corners=False)
 
-        # Squeeze the channel dimension to get back to [N, H, W]
+        # Squeeze channel dimension to get back to [N, H, W]
         depth_preds = depth_preds.squeeze(1)
         depth_labels = depth_labels.squeeze(1)
 
-        # Ensure predicted labels (preds) have the same spatial size as ground truth labels.
+        # Ensure predicted labels have the same spatial size as ground truth labels.
+        # If preds is 3D, add a channel dimension.
+        if preds.ndim == 3:
+            preds = preds.unsqueeze(1)
         if preds.shape[-2:] != labels.shape[-2:]:
-            preds = F.interpolate(preds.unsqueeze(1).float(), size=labels.shape[-2:], mode='nearest').squeeze(1).long()
+            preds = F.interpolate(preds, size=labels.shape[-2:], mode='nearest')
+        preds = preds.squeeze(1).long()
 
         # Compute absolute depth error.
         depth_error = (depth_preds - depth_labels).abs()
 
-        # Create a mask for true positives on road (assumed labels > 0).
+        # Create a mask for true positives (assume road labels > 0).
         tp_mask = ((preds == labels) & (labels > 0)).float()
         tp_depth_error = depth_error * tp_mask
 
-        # Update the confusion matrix with class predictions and labels.
+        # Update the confusion matrix and accumulate metrics.
         self.confusion_matrix.add(preds, labels)
-        # Append the average depth error for this batch.
         self.avg_depth_errors.append(depth_error.mean().item())
-        # Sum the depth error on true positives and count the number of true positive pixels.
         self.tp_depth_error_sum += tp_depth_error.sum().item()
         self.tp_depth_error_n += tp_mask.sum().item()
 
