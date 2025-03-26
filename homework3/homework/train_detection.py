@@ -140,17 +140,32 @@ class CombinedLoss(nn.Module):
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 # Data Augmentation Transforms
-def get_train_transforms():
-    return T.Compose([
-        T.Resize((96, 128)),
-        T.RandomHorizontalFlip(),
-        T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        T.RandomRotation(degrees=15),
-        T.RandomResizedCrop((96, 128), scale=(0.8, 1.0)),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225])
-    ])
+def get_transform(self, transform_pipeline):
+    if isinstance(transform_pipeline, T.Compose):
+        return transform_pipeline
+
+    xform = None
+    if transform_pipeline == "default":
+        xform = T.Compose([
+            T.Resize((96, 128)),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    elif transform_pipeline == "aug":
+        xform = T.Compose([
+            T.Resize((96, 128)),
+            T.RandomHorizontalFlip(),
+            T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            T.RandomRotation(degrees=15),
+            T.RandomResizedCrop((96, 128), scale=(0.8, 1.0)),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+    if xform is None:
+        raise ValueError(f"Invalid transform {transform_pipeline} specified!")
+
+    return xform
 
 def get_val_transforms():
     return T.Compose([
@@ -200,8 +215,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
 
-    train_transforms = get_train_transforms()
-    train_dataset = load_data("drive_data/train", transform_pipeline=train_transforms,
+
+    train_dataset = load_data("drive_data/train", transform_pipeline="default",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
 
     sample_weights = compute_sample_weights(train_dataset)
