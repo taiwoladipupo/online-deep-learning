@@ -94,7 +94,7 @@ class CombinedLoss(nn.Module):
         self.focal_loss = FocalLoss(alpha=0.7, gamma=0.3, logits=True)
         self.dice_loss = DiceLoss()
         if class_weights is None:
-            class_weights = torch.tensor([0.001, 20.0, 10.00], dtype=torch.float32)
+            class_weights = torch.tensor([0.001, 2000.0, 10.00], dtype=torch.float32)
         else:
             class_weights = torch.tensor(class_weights, dtype=torch.float32)
 
@@ -211,7 +211,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    class_weights = torch.tensor([0.001, 10.0, 50.0], dtype=torch.float32).to(device)
+    class_weights = torch.tensor([0.001, 2000.0, 10.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
