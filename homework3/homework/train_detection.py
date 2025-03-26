@@ -98,6 +98,15 @@ def train(
             if pred_depth.ndim == 3:
                 pred_depth = pred_depth.unsqueeze(1)
             target_size_depth = tuple(int(x) for x in depth.shape[-2:])
+
+            # Check if spatial dimensions differ
+            if pred_depth.shape[-2:] != depth.shape[-2:]:
+                target_size = tuple(depth.shape[-2:])  # e.g., (H, W) from ground truth depth
+                # Upsample pred_depth to match ground truth depth resolution.
+                pred_depth = F.interpolate(pred_depth.unsqueeze(1).float(),
+                                           size=target_size,
+                                           mode='bilinear',
+                                           align_corners=False).squeeze(1)
             pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
             depth =F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
 
@@ -182,8 +191,14 @@ def train(
                 print("After resizing dbth:pred_depth:", pred_depth.shape, "depth:", depth.shape)
                 assert pred_depth.shape == depth.shape
 
-            
-            
+                # Check if spatial dimensions differ
+                if pred_depth.shape[-2:] != depth.shape[-2:]:
+                    target_size = tuple(depth.shape[-2:])  # e.g., (H, W) from ground truth depth
+                    # Upsample pred_depth to match ground truth depth resolution.
+                    pred_depth = F.interpolate(pred_depth.unsqueeze(1).float(),
+                                               size=target_size,
+                                               mode='bilinear',
+                                               align_corners=False).squeeze(1)
 
                 # pred_labels = pred.argmax(dim=1)
                 validation_metrics.add(pred_labels, track, pred_depth, depth)
