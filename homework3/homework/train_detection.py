@@ -52,6 +52,7 @@ def train(
     mse_loss = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+
     global_step = 0
     training_metrics = DetectionMetric()
     validation_metrics = DetectionMetric()
@@ -76,10 +77,26 @@ def train(
 
             if pred.shape[2:] != track.shape[1:]:
                 pred = F.interpolate(pred, size=track.shape[1:], mode='bilinear', align_corners=False)
+            pred_labels = pred_labels.argmax(dim=1)
 
             if track.dim() == 4:
                 track = track.squeeze(1)  # Remove the extra dimension if necessary
             target_indices = track.squeeze(1)
+
+            if track.ndim == 4:
+                track = track.squeeze(1)
+            target_size = track.shape[-2:]
+
+            if depth.ndim == 3:
+                depth = depth.unsqueeze(1)
+            if pred_depth.ndim == 3:
+                pred_depth = pred_depth.unsqueeze(1)
+            pred_depth = F.interpolate(pred_depth, size=target_size, mode='bilinear', align_corners=False)
+            depth =F.interpolate(depth, size=target_size, mode='bilinear', align_corners=False)
+
+            # Squeeze them back
+            pred_depth = pred_depth.squeeze()
+            depth = depth.squeeze()
 
 
             # logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
@@ -92,13 +109,13 @@ def train(
             # Ensure the tensors have compatible dimensions
             # Ensure the tensors have compatible dimensions
             # Ensure the tensors have compatible dimensions
-            if pred_depth.shape[2] != depth.shape[2]:
-                if depth.dim() == 3:  # If depth has only 3 dimensions, add a dimension
-                    depth = depth.unsqueeze(1)
-                if pred_depth.dim() == 3:  # If pred_depth has only 3 dimensions, add a dimension
-                    pred_depth = pred_depth.unsqueeze(1)
-                pred_depth = F.interpolate(pred_depth, size=(depth.shape[2], depth.shape[3]), mode='bilinear',
-                                           align_corners=False)
+            # if pred_depth.shape[2] != depth.shape[2]:
+            #     if depth.dim() == 3:  # If depth has only 3 dimensions, add a dimension
+            #         depth = depth.unsqueeze(1)
+            #     if pred_depth.dim() == 3:  # If pred_depth has only 3 dimensions, add a dimension
+            #         pred_depth = pred_depth.unsqueeze(1)
+            #     pred_depth = F.interpolate(pred_depth, size=(depth.shape[2], depth.shape[3]), mode='bilinear',
+            #                                align_corners=False)
             training_metrics.add(pred_labels, track,pred_depth, depth)
 
             loss = alpha * ce_loss(pred, target_indices) + beta * mse_loss(pred_depth, depth)
@@ -117,7 +134,27 @@ def train(
                 depth = batch["depth"]
 
                 pred, pred_depth = model(img)
-                pred_labels = pred.argmax(dim=1)
+
+                if pred.shape[2:] != track.shape[1:]:
+                    pred = F.interpolate(pred, size=track.shape[1:], mode='bilinear', align_corners=False)
+                pred_labels = pred_labels.argmax(dim=1)
+
+                if track.dim() == 4:
+                    track = track.squeeze(1)  # Remove the extra dimension if necessary
+                target_size = track.squeeze(1)
+
+
+                if depth.ndim == 3:
+                    depth = depth.unsqueeze(1)
+                if pred_depth.ndim == 3:
+                    pred_depth = pred_depth.unsqueeze(1)
+                pred_depth = F.interpolate(pred_depth, size=target_size, mode='bilinear', align_corners=False)
+                depth = F.interpolate(depth, size=target_size, mode='bilinear', align_corners=False)
+
+                # Squeeze them back
+                pred_depth = pred_depth.squeeze()
+                depth = depth.squeeze()
+                # pred_labels = pred.argmax(dim=1)
                 validation_metrics.add(pred_labels, track, pred_depth, depth)
 
         # log accuracy to tensorboard
