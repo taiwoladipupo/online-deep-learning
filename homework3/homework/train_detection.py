@@ -259,9 +259,9 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         model.train()
         epoch_train_losses = []
         for batch in train_data:
-            img = batch["image"].to(device).float()
-            label = batch["track"].to(device).long()
-            depth_true = batch["depth"].to(device)
+            img = torch.tensor(batch["image"]).to(device).float()
+            label = torch.tensor(batch["track"]).to(device).long()
+            depth_true = torch.tensor(batch["depth"]).to(device)
 
             # Ensure label is in [N, H, W]
             if label.ndim == 4:
@@ -301,10 +301,10 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         depth_errors = []
         confusion_matrix = ConfusionMatrix(num_classes=3)
         with torch.no_grad():
-            for batch in val_data:
-                img = batch["image"].to(device).float()
-                label = batch["track"].to(device).long()
-                depth_true = batch["depth"].to(device)
+            for batch in train_data:
+                img = torch.tensor(batch["image"]).to(device).float()
+                label = torch.tensor(batch["track"]).to(device).long()
+                depth_true = torch.tensor(batch["depth"]).to(device)
                 if label.ndim == 4:
                     redundant = True
                     for i in range(1, label.shape[-1]):
