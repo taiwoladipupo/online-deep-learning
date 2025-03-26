@@ -16,25 +16,39 @@ from .datasets.road_dataset import load_data
 
 # Loss Functions
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=0.7, gamma=2, logits=False, reduce=True):
+    def __init__(self, alpha=0.7, gamma=2.0, logits=True, reduction='mean'):
         super(FocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.logits = logits
-        self.reduce = reduce
+        self.reduction = reduction
 
     def forward(self, inputs, targets):
+        # inputs: [N, C, H, W]
+        # If using logits, targets must be one-hot with shape [N, C, H, W]
         if self.logits:
-            BCE_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+            if targets.shape != inputs.shape:
+                # If targets are class indices with shape [N, H, W]
+                if targets.ndim == inputs.ndim - 1:
+                    targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
+                # If targets are [N, 1, H, W]
+                elif targets.ndim == inputs.ndim and targets.shape[1] == 1:
+                    targets = targets.squeeze(1)  # now [N, H, W]
+                    targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
+                else:
+                    raise ValueError(f"Unexpected target shape: {targets.shape}. "
+                                     f"Expected [N, H, W] or [N, 1, H, W] when logits=True.")
+            BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         else:
-            BCE_loss = nn.functional.binary_cross_entropy(inputs, targets, reduction='none')
+            BCE_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
         pt = torch.exp(-BCE_loss)
-        F_loss = self.alpha * (1-pt)**self.gamma * BCE_loss
-
-        if self.reduce:
-            return torch.mean(F_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
         else:
-            return F_loss
+            return focal_loss
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1):
@@ -222,6 +236,15 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             label = batch["track"].to(device).long()
             depth_true = batch["depth"].to(device)
 
+            # Check if label has an extra dimension that is redundant.
+            if label.ndim == 4:
+                # If all values along the last dimension are identical, keep only the first slice.
+                if torch.all(label[..., 0] == label[..., -1]):
+                    label = label[..., 0]
+                else:
+                    raise ValueError(
+                        f"Label has unexpected shape {label.shape} with varying values along the extra dimension.")
+
             logits, depth_pred = model(img)
             normalized_logits = F.softmax(logits, dim=1)
 
@@ -256,6 +279,15 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
                 img = batch["image"].to(device).float()
                 label = batch["track"].to(device).long()
                 depth_true = batch["depth"].to(device)
+
+                # Check if label has an extra dimension that is redundant.
+                if label.ndim == 4:
+                    # If all values along the last dimension are identical, keep only the first slice.
+                    if torch.all(label[..., 0] == label[..., -1]):
+                        label = label[..., 0]
+                    else:
+                        raise ValueError(
+                            f"Label has unexpected shape {label.shape} with varying values along the extra dimension.")
 
                 logits, depth_pred = model(img)
                 normalized_logits = F.softmax(logits, dim=1)
