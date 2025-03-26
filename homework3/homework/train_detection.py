@@ -143,7 +143,7 @@ def train(
             #         pred_depth = pred_depth.unsqueeze(1)
             #     pred_depth = F.interpolate(pred_depth, size=(depth.shape[2], depth.shape[3]), mode='bilinear',
             #                                align_corners=False)
-            training_metrics.add(pred_labels, original_track, pred_depth, depth)
+            training_metrics.add(pred_labels, original_track, depth, pred_depth)
 
             loss = alpha * ce_loss(pred, logits) + beta * mse_loss(pred_depth, depth)
             loss.backward()
