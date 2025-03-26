@@ -287,7 +287,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     logger = tb.SummaryWriter(log_dir)
 
     # Use the custom transform for training if specified
-    train_transform = get_transform(transform_pipeline)
+    # train_transform = get_transform(transform_pipeline)
     train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
