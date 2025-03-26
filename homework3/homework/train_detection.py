@@ -99,12 +99,14 @@ def train(
 
             # Check if spatial dimensions differ
             if pred_depth.shape[-2:] != depth.shape[-2:]:
+                print("Before interpolation: pred_depth shape =", pred_depth.shape, "depth shape =", depth.shape)
                 target_size = tuple(int(x) for x in depth.shape[-2:])  # e.g., (H, W) from ground truth depth
                 # Upsample pred_depth to match ground truth depth resolution.
                 pred_depth = F.interpolate(pred_depth,
                                            size=target_size,
                                            mode='bilinear',
                                            align_corners=False)
+                print("After interpolation: pred_depth shape =", pred_depth.shape)
 
 
             # Squeeze them back if necessary
@@ -112,7 +114,8 @@ def train(
                 pred_depth = pred_depth.squeeze(1)
             if depth.ndim == 4:
                 depth = depth.squeeze(1)
-            assert pred_depth.shape == depth.shape
+            print("Before metric add: pred_depth shape =", pred_depth.shape, "depth shape =", depth.shape)
+            assert pred_depth.shape == depth.shape, "Shape mismatch: pred_depth {} vs depth {}".format(pred_depth.shape, depth.shape)
 
             # # Squeeze them back
             # pred_depth = pred_depth.squeeze(1)
