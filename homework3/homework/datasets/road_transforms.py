@@ -361,3 +361,34 @@ class RandomResizedCrop:
         i = (height - h) // 2
         j = (width - w) // 2
         return i, j, h, w
+
+
+
+
+class Resize:
+    def __init__(self, size, resample=Image.Resampling.BILINEAR):
+        if not isinstance(size, (tuple, list)) or len(size) != 2:
+            raise ValueError("Size should be a tuple or list of two integers")
+        self.size = size
+        self.resample = resample
+
+    def __call__(self, sample):
+        image = self._resize_image(sample['image'], self.size, self.resample)
+        depth = self._resize_image(sample['depth'], self.size, Image.Resampling.NEAREST, is_depth=True)
+        sample['image'] = image
+        sample['depth'] = depth
+        return sample
+
+    @staticmethod
+    def _resize_image(image, size, resample, is_depth=False):
+        if is_depth:
+            image = (image * 65535).astype(np.uint16)
+        else:
+            image = (image * 255).astype(np.uint8).transpose(1, 2, 0)
+
+        image = Image.fromarray(image).resize(size, resample)
+
+        if is_depth:
+            return np.array(image) / 65535.0
+        else:
+            return np.array(image).transpose(2, 0, 1) / 255.0

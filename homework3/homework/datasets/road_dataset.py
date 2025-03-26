@@ -49,7 +49,7 @@ class RoadDataset(Dataset):
                     road_transforms.RandomHorizontalFlip(),
                     road_transforms.RandomRotation(15),
                     road_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                    road_transforms.RandomResizedCrop((96,128), scale=(0.8, 1.0)),
+                    road_transforms.Resize((96, 128)),  # Ensure consistent dimensions
                 ]
             )
 
