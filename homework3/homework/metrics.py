@@ -52,39 +52,46 @@ class DetectionMetric:
 
     @torch.no_grad()
     def add(
-        self,
-        preds: torch.Tensor,
-        labels: torch.Tensor,
-        depth_preds: torch.Tensor,
-        depth_labels: torch.Tensor,
+            self,
+            preds: torch.Tensor,
+            labels: torch.Tensor,
+            depth_preds: torch.Tensor,
+            depth_labels: torch.Tensor,
     ):
         """
         Args:
-            pred (torch.LongTensor): (b, h, w) with class predictions
+            preds (torch.LongTensor): (b, h, w) with class predictions
             labels (torch.LongTensor): (b, h, w) with ground truth class labels
             depth_preds (torch.FloatTensor): (b, h, w) with depth predictions
             depth_labels (torch.FloatTensor): (b, h, w) with ground truth depth
         """
 
+        # Ensure depth predictions match the ground truth spatial size.
         if depth_preds.shape[-2:] != depth_labels.shape[-2:]:
             depth_preds = F.interpolate(depth_preds.unsqueeze(1),
                                         size=depth_labels.shape[-2:],
                                         mode='bilinear',
                                         align_corners=False).squeeze(1)
-        if preds.shape[1:] != labels.shape[1:]:
+
+        # Ensure predicted labels (preds) have the same spatial size as ground truth labels.
+        if preds.shape[-2:] != labels.shape[-2:]:
+            # Use nearest neighbor interpolation to preserve discrete labels.
             preds = F.interpolate(preds.unsqueeze(1).float(),
-                                  size=labels.shape[1:],
+                                  size=labels.shape[-2:],
                                   mode='nearest').squeeze(1).long()
 
+        # Compute absolute depth error.
         depth_error = (depth_preds - depth_labels).abs()
 
-        # only consider matches on road
+        # Create a mask for true positives on road (assumed labels > 0).
         tp_mask = ((preds == labels) & (labels > 0)).float()
         tp_depth_error = depth_error * tp_mask
 
+        # Update the confusion matrix with class predictions and labels.
         self.confusion_matrix.add(preds, labels)
+        # Append the average depth error for this batch.
         self.avg_depth_errors.append(depth_error.mean().item())
-
+        # Sum the depth error on true positives and count the number of true positive pixels.
         self.tp_depth_error_sum += tp_depth_error.sum().item()
         self.tp_depth_error_n += tp_mask.sum().item()
 
