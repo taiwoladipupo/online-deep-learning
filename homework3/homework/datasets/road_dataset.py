@@ -60,7 +60,6 @@ class RoadDataset(Dataset):
                 ),
             ])
         return xform
-        return xform
 
     def __len__(self):
         return len(self.frames["location"])
