@@ -76,17 +76,19 @@ def train(
 
             if track.dim() == 4:
                 track = track.squeeze(1)  # Remove the extra dimension if necessary
+            target_indices = track.squeeze(1)
 
-            logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
+
+            # logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
 
             print({"img": img.shape,
                    "depth": depth.shape,
                    "track": track.shape,
-                   "logits": logits.shape,})
+                   "target_indices": target_indices.shape,})
 
             training_metrics.add(pred_labels, track,pred_depth, depth)
 
-            loss = alpha * ce_loss(pred, logits) + beta * mse_loss(pred_depth, depth)
+            loss = alpha * ce_loss(pred, target_indices) + beta * mse_loss(pred_depth, depth)
             loss.backward()
             optimizer.step()
 
