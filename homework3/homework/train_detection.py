@@ -184,6 +184,7 @@ def compute_sample_weights(dataset):
 
     return sample_weights
 # Main Training Loop
+
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
           batch_size=64, seed=2024, transform_pipeline="default", oversample=False, **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
