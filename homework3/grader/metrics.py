@@ -65,6 +65,10 @@ class DetectionMetric:
             depth_preds (torch.FloatTensor): (b, h, w) with depth predictions
             depth_labels (torch.FloatTensor): (b, h, w) with ground truth depth
         """
+        # Debug prints to track tensor shapes
+        print("Inside DetectionMetric.add:")
+        print("depth_preds shape:", depth_preds.shape)
+        print("depth_labels shape:", depth_labels.shape)
         depth_error = (depth_preds - depth_labels).abs()
 
         # only consider matches on road
