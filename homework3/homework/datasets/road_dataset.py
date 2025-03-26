@@ -30,33 +30,42 @@ class RoadDataset(Dataset):
         self.transform = self.get_transform(transform_pipeline)
 
     def get_transform(self, transform_pipeline: str):
-        xform = None
-
         if transform_pipeline == "default":
-            xform = road_transforms.Compose(
-                [
-                    road_transforms.ImageLoader(self.episode_path),
-                    road_transforms.DepthLoader(self.episode_path),
-                    road_transforms.TrackProcessor(self.track),
-                ]
-            )
+            xform = road_transforms.Compose([
+                road_transforms.ImageLoader(self.episode_path),
+                road_transforms.DepthLoader(self.episode_path),
+                road_transforms.TrackProcessor(self.track),
+            ])
         elif transform_pipeline == "aug":
-            xform = road_transforms.Compose(
-                [
-                    road_transforms.ImageLoader(self.episode_path),
-                    road_transforms.DepthLoader(self.episode_path),
-                    road_transforms.TrackProcessor(self.track),
-                    road_transforms.RandomHorizontalFlip(),
-                    road_transforms.RandomRotation(15),
-                    road_transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                    road_transforms.Resize((96, 128)),  # Ensure consistent dimensions
-                ]
-            )
-
-
-        if xform is None:
-            raise ValueError(f"Invalid transform {transform_pipeline} specified!")
-
+            xform = road_transforms.Compose([
+                # Load the raw data
+                road_transforms.ImageLoader(self.episode_path),
+                road_transforms.DepthLoader(self.episode_path),
+                road_transforms.TrackProcessor(self.track),
+                # Apply spatial augmentations consistently to image, depth, and track:
+                road_transforms.RandomHorizontalFlip(prob=0.5, keys=["image", "depth", "track"]),
+                road_transforms.RandomRotation(
+                    degrees=15,
+                    keys=["image", "depth", "track"],
+                    interpolation={"image": "bilinear", "depth": "bilinear", "track": "nearest"}
+                ),
+                # Apply color jitter only to the image (do not modify the mask)
+                road_transforms.ColorJitter(
+                    brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1,
+                    keys=["image"]
+                ),
+                # Resize the image and mask separately with appropriate interpolation:
+                road_transforms.Resize(
+                    (96, 128),
+                    keys=["image"],
+                    interpolation={"image": "bilinear"}
+                ),
+                road_transforms.Resize(
+                    (96, 128),
+                    keys=["track"],
+                    interpolation={"track": "nearest"}
+                ),
+            ])
         return xform
 
     def __len__(self):
