@@ -10,8 +10,6 @@ Design pattern of the transforms:
 """
 
 from pathlib import Path
-from torchvision.transforms import ColorJitter as TorchColorJitter
-import random
 
 import cv2
 import numpy as np
@@ -155,8 +153,8 @@ class DepthLoader(ImageLoader):
 class RandomHorizontalFlip(tv_transforms.RandomHorizontalFlip):
     def __call__(self, sample: dict):
         if np.random.rand() < self.p:
-            sample["image"] = np.flip(sample["image"], axis=2).copy()
-            sample["track"] = np.flip(sample["track"], axis=1).copy() # Adding copy() to avoid in-place modification
+            sample["image"] = np.flip(sample["image"], axis=2)
+            sample["track"] = np.flip(sample["track"], axis=1)
 
         return sample
 
@@ -265,130 +263,3 @@ class EgoTrackProcessor:
             "waypoints": waypoints.astype(np.float32),
             "waypoints_mask": waypoints_mask,
         }
-
-
-class RandomRotation:
-    def __init__(self, degrees):
-        self.degrees = degrees
-
-    def __call__(self, sample):
-        angle = random.uniform(-self.degrees, self.degrees)
-
-        # Ensure the image has the correct shape and data type
-        image = (sample['image'] * 255).astype(np.uint8)
-        if image.ndim == 3 and image.shape[0] == 3:
-            image = image.transpose(1, 2, 0)  # Convert from (C, H, W) to (H, W, C)
-
-        image = Image.fromarray(image).rotate(angle)
-        sample['image'] = np.array(image).transpose(2, 0, 1) / 255.0  # Convert back to (C, H, W)
-
-        # Ensure the depth has the correct shape and data type
-        depth = (sample['depth'] * 65535).astype(np.uint16)
-        depth = Image.fromarray(depth).rotate(angle)
-        sample['depth'] = np.array(depth) / 65535.0
-
-        return sample
-
-class ColorJitter:
-    def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
-        self.transform = TorchColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
-
-    def __call__(self, sample):
-        # Convert numpy array to PIL Image
-        image = Image.fromarray((sample['image'] * 255).astype(np.uint8).transpose(1, 2, 0))
-        # Apply ColorJitter transformation
-        image = self.transform(image)
-        # Convert PIL Image back to numpy array
-        sample['image'] = np.array(image).transpose(2, 0, 1) / 255.0
-        return sample
-
-class RandomResizedCrop:
-    def __init__(self, size, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.)):
-        self.size = size
-        self.scale = scale
-        self.ratio = ratio
-
-    def __call__(self, sample):
-        image = sample['image']
-        depth = sample['depth']
-
-        # Convert numpy array to PIL Image
-        image = Image.fromarray((image * 255).astype(np.uint8).transpose(1, 2, 0))
-        depth = Image.fromarray((depth * 65535).astype(np.uint16))
-
-        # Get parameters for crop
-        i, j, h, w = self.get_params(image, self.scale, self.ratio)
-
-        # Crop and resize image
-        image = image.crop((j, i, j + w, i + h)).resize((self.size, self.size), Image.BILINEAR)
-        depth = depth.crop((j, i, j + w, i + h)).resize((self.size, self.size), Image.NEAREST)
-
-        # Convert back to numpy array
-        sample['image'] = np.array(image).transpose(2, 0, 1) / 255.0
-        sample['depth'] = np.array(depth) / 65535.0
-
-        return sample
-
-    @staticmethod
-    def get_params(img, scale, ratio):
-        width, height = img.size
-        area = height * width
-
-        for _ in range(10):
-            target_area = random.uniform(*scale) * area
-            log_ratio = (np.log(ratio[0]), np.log(ratio[1]))
-            aspect_ratio = np.exp(random.uniform(*log_ratio))
-
-            w = int(round(np.sqrt(target_area * aspect_ratio)))
-            h = int(round(np.sqrt(target_area / aspect_ratio)))
-
-            if w <= width and h <= height:
-                i = random.randint(0, height - h)
-                j = random.randint(0, width - w)
-                return i, j, h, w
-
-        # Fallback to central crop
-        in_ratio = float(width) / float(height)
-        if in_ratio < min(ratio):
-            w = width
-            h = int(round(w / min(ratio)))
-        elif in_ratio > max(ratio):
-            h = height
-            w = int(round(h * max(ratio)))
-        else:
-            w = width
-            h = height
-        i = (height - h) // 2
-        j = (width - w) // 2
-        return i, j, h, w
-
-
-
-
-class Resize:
-    def __init__(self, size, resample=Image.Resampling.BILINEAR):
-        if not isinstance(size, (tuple, list)) or len(size) != 2:
-            raise ValueError("Size should be a tuple or list of two integers")
-        self.size = size
-        self.resample = resample
-
-    def __call__(self, sample):
-        image = self._resize_image(sample['image'], self.size, self.resample)
-        depth = self._resize_image(sample['depth'], self.size, Image.Resampling.NEAREST, is_depth=True)
-        sample['image'] = image
-        sample['depth'] = depth
-        return sample
-
-    @staticmethod
-    def _resize_image(image, size, resample, is_depth=False):
-        if is_depth:
-            image = (image * 65535).astype(np.uint16)
-        else:
-            image = (image * 255).astype(np.uint8).transpose(1, 2, 0)
-
-        image = Image.fromarray(image).resize(size, resample)
-
-        if is_depth:
-            return np.array(image) / 65535.0
-        else:
-            return np.array(image).transpose(2, 0, 1) / 255.0

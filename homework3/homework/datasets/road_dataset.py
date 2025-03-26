@@ -1,13 +1,11 @@
 from pathlib import Path
-from typing import Union
-from imblearn.over_sampling import SMOTE
+
 import numpy as np
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 from . import road_transforms
 from .road_utils import Track
-from .road_transforms import RandomRotation
-from PIL import Image
+
 
 class RoadDataset(Dataset):
     """
@@ -31,35 +29,21 @@ class RoadDataset(Dataset):
 
     def get_transform(self, transform_pipeline: str):
         xform = None
+
         if transform_pipeline == "default":
-            xform = road_transforms.Compose([
-                road_transforms.ImageLoader(self.episode_path),
-                road_transforms.DepthLoader(self.episode_path),
-                road_transforms.TrackProcessor(self.track),
-            ])
+            xform = road_transforms.Compose(
+                [
+                    road_transforms.ImageLoader(self.episode_path),
+                    road_transforms.DepthLoader(self.episode_path),
+                    road_transforms.TrackProcessor(self.track),
+                ]
+            )
         elif transform_pipeline == "aug":
-            xform = road_transforms.Compose([
-                # Load the raw data
-                road_transforms.ImageLoader(self.episode_path),
-                road_transforms.DepthLoader(self.episode_path),
-                road_transforms.TrackProcessor(self.track),
-                # Apply spatial augmentations consistently to image, depth, and track:
-                road_transforms.RandomHorizontalFlip(p=0.5),
-                road_transforms.RandomRotation(degrees=15),
-                # Apply color jitter only to the image (do not modify the mask)
-                road_transforms.ColorJitter(
-                    brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
-                ),
-                # Resize the image and mask separately with appropriate interpolation:
-                road_transforms.Resize(
-                    (96, 128),
-                    resample=Image.Resampling.BILINEAR
-                ),
-                road_transforms.Resize(
-                    (96, 128),
-                    resample=Image.Resampling.NEAREST
-                ),
-            ])
+            pass
+
+        if xform is None:
+            raise ValueError(f"Invalid transform {transform_pipeline} specified!")
+
         return xform
 
     def __len__(self):
@@ -81,12 +65,6 @@ class RoadDataset(Dataset):
         return sample
 
 
-
-def oversample_minority_classes(X, y):
-    smote = SMOTE()
-    X_res, y_res = smote.fit_resample(X, y)
-    return X_res, y_res
-
 def load_data(
     dataset_path: str,
     transform_pipeline: str = "default",
@@ -94,11 +72,25 @@ def load_data(
     num_workers: int = 2,
     batch_size: int = 32,
     shuffle: bool = False,
-    oversample: bool = False
-) -> Union[DataLoader, Dataset]:
+) -> DataLoader | Dataset:
+    """
+    Constructs the dataset/dataloader.
+    The specified transform_pipeline must be implemented in the RoadDataset class.
+
+    Args:
+        transform_pipeline (str): 'default', 'aug', or other custom transformation pipelines
+        return_dataloader (bool): returns either DataLoader or Dataset
+        num_workers (int): data workers, set to 0 for VSCode debugging
+        batch_size (int): batch size
+        shuffle (bool): should be true for train and false for val
+
+    Returns:
+        DataLoader or Dataset
+    """
     dataset_path = Path(dataset_path)
     scenes = [x for x in dataset_path.iterdir() if x.is_dir()]
 
+    # can pass in a single scene like "road_data/val/cornfield_crossing_04"
     if not scenes and dataset_path.is_dir():
         scenes = [dataset_path]
 
@@ -106,12 +98,6 @@ def load_data(
     for episode_path in sorted(scenes):
         datasets.append(RoadDataset(episode_path, transform_pipeline=transform_pipeline))
     dataset = ConcatDataset(datasets)
-
-    if oversample:
-        X = [sample['image'] for sample in dataset]
-        y = [sample['track'] for sample in dataset]
-        X_res, y_res = oversample_minority_classes(X, y)
-        dataset = [(X_res[i], y_res[i]) for i in range(len(X_res))]
 
     print(f"Loaded {len(dataset)} samples from {len(datasets)} episodes")
 
