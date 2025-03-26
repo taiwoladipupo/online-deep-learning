@@ -260,31 +260,29 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         epoch_train_losses = []
         for batch in train_data:
             img = torch.tensor(batch["image"]).to(device).float()  # Ensure the input tensor is of type float
+            # Ensure the input tensor has 4 dimensions
             if img.ndim == 3:
-                img = img.unsqueeze(0)
+                img = img.unsqueeze(0)  # Add batch dimension
 
-            label = torch.tensor(batch["track"]).to(device).long()
-            depth_true = torch.tensor(batch["depth"]).to(device)
+            # Ensure the label tensor has 4 dimensions
+            if label.ndim == 3:
+                label = label.unsqueeze(0)  # Add batch dimension
 
-            # Ensure label is in [N, H, W]
-            if label.ndim == 4:
-                redundant = True
-                for i in range(1, label.shape[-1]):
-                    if not torch.equal(label[..., 0], label[..., i]):
-                        redundant = False
-                        break
-                if redundant:
-                    label = label[..., 0]
-                else:
-                    raise ValueError(f"Label has unexpected shape {label.shape}.")
+            # Ensure the depth_true tensor has 4 dimensions
+            if depth_true.ndim == 3:
+                depth_true = depth_true.unsqueeze(0)  # Add batch dimension
 
             # Get raw logits from the model
             logits, depth_pred = model(img)
+
             # Apply temperature scaling to raw logits (do not apply softmax)
             temperature = 1.5
             scaled_logits = logits / temperature
+
+            # Ensure the output size has the same number of dimensions as the input tensor
             if scaled_logits.shape[2:] != label.shape[1:]:
                 scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
+
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                            align_corners=False).squeeze(1)
@@ -307,20 +305,15 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
                 img = torch.tensor(batch["image"]).to(device).float()
                 img = batch["image"]
                 if img.ndim == 3:
-                    img = img.unsqueeze(0)
+                    img = img.unsqueeze(0)  # Add batch dimension
 
-                label = torch.tensor(batch["track"]).to(device).long()
-                depth_true = torch.tensor(batch["depth"]).to(device)
-                if label.ndim == 4:
-                    redundant = True
-                    for i in range(1, label.shape[-1]):
-                        if not torch.equal(label[..., 0], label[..., i]):
-                            redundant = False
-                            break
-                    if redundant:
-                        label = label[..., 0]
-                    else:
-                        raise ValueError(f"Label has unexpected shape {label.shape}.")
+                # Ensure the label tensor has 4 dimensions
+                if label.ndim == 3:
+                    label = label.unsqueeze(0)  # Add batch dimension
+
+                # Ensure the depth_true tensor has 4 dimensions
+                if depth_true.ndim == 3:
+                    depth_true = depth_true.unsqueeze(0)  # Add batch dimension
 
                 logits, depth_pred = model(img)
                 scaled_logits = logits / temperature
