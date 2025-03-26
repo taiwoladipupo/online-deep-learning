@@ -73,6 +73,10 @@ class DetectionMetric:
                                         size=depth_labels.shape[-2:],
                                         mode='bilinear',
                                         align_corners=False).squeeze(1)
+        if depth_preds.ndim == 3:
+            depth_preds = depth_preds.unsqueeze(1)  # Now [B, 1, H, W]
+        if depth_labels.ndim == 3:
+            depth_labels = depth_labels.unsqueeze(1)
 
         # Ensure predicted labels (preds) have the same spatial size as ground truth labels.
         if preds.shape[-2:] != labels.shape[-2:]:
