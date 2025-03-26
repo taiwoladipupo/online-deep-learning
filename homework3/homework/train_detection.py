@@ -26,8 +26,8 @@ class TverskyLoss(nn.Module):
 
     def forward(self, inputs, targets):
         inputs = torch.sigmoid(inputs)
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
+        inputs = inputs.reshape(-1)
+        targets = targets.reshape(-1)
 
         true_pos = (inputs * targets).sum()
         false_neg = ((1 - inputs) * targets).sum()
