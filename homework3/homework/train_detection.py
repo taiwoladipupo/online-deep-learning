@@ -90,8 +90,6 @@ def train(
                 #print("After resizing, track shape:", track.shape)
             assert pred_labels.shape == track.shape
 
-            target_size = tuple(int(x) for x in track.shape[-2:])
-
 
             if depth.ndim == 3:
                 depth = depth.unsqueeze(1)
@@ -112,9 +110,7 @@ def train(
 
             pred_depth = pred_depth.squeeze(1)
             depth = depth.squeeze(1)
-            print("After resizing dbth:pred_depth:", pred_depth.shape, "depth:", depth.shape)
-
-
+            # print("After resizing dbth:pred_depth:", pred_depth.shape, "depth:", depth.shape)
 
             assert pred_depth.shape == depth.shape
 
@@ -175,7 +171,6 @@ def train(
 
                 assert pred_labels.shape == track.shape
                 # Resizing depth
-                target_size = tuple(int(x) for x in track.shape[-2:])
 
                 if depth.ndim == 3:
                     depth = depth.unsqueeze(1)
