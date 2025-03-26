@@ -15,6 +15,50 @@ from .metrics import ConfusionMatrix
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 
+
+
+class TverskyLoss(nn.Module):
+    def __init__(self, alpha=0.5, beta=0.5, smooth=1):
+        super(TverskyLoss, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.smooth = smooth
+
+    def forward(self, inputs, targets):
+        inputs = torch.sigmoid(inputs)
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        true_pos = (inputs * targets).sum()
+        false_neg = ((1 - inputs) * targets).sum()
+        false_pos = (inputs * (1 - targets)).sum()
+
+        tversky_index = (true_pos + self.smooth) / (
+                    true_pos + self.alpha * false_neg + self.beta * false_pos + self.smooth)
+        return 1 - tversky_index
+
+
+class FocalTverskyLoss(nn.Module):
+    def __init__(self, alpha=0.5, beta=0.5, gamma=1.0, smooth=1):
+        super(FocalTverskyLoss, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.smooth = smooth
+
+    def forward(self, inputs, targets):
+        inputs = torch.sigmoid(inputs)
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        true_pos = (inputs * targets).sum()
+        false_neg = ((1 - inputs) * targets).sum()
+        false_pos = (inputs * (1 - targets)).sum()
+
+        tversky_index = (true_pos + self.smooth) / (
+                    true_pos + self.alpha * false_neg + self.beta * false_pos + self.smooth)
+        focal_tversky_loss = (1 - tversky_index) ** self.gamma
+        return focal_tversky_loss
 # Loss Functions
 class FocalLoss(nn.Module):
     def __init__(self, alpha=0.7, gamma=1.5, logits=True, reduction='mean'):
@@ -82,8 +126,10 @@ class DiceLoss(nn.Module):
         dice = (2. * intersection + self.smooth) / (inputs.sum() + targets.sum() + self.smooth)
         return 1 - dice
 
+
 class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=1.0, dice_weight=0.0, class_weights=None):
+    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=1.0,
+                 dice_weight=0.0, tversky_weight=0.0, class_weights=None):
         super(CombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
@@ -91,15 +137,18 @@ class CombinedLoss(nn.Module):
         self.depth_loss_weight = depth_loss_weight
         self.ce_weight = ce_weight
         self.dice_weight = dice_weight
+        self.tversky_weight = tversky_weight
 
         self.focal_loss = FocalLoss(alpha=0.7, gamma=1.5, logits=True)
         self.dice_loss = DiceLoss()
+        self.tversky_loss = TverskyLoss(alpha=0.5, beta=0.5)
+        self.focal_tversky_loss = FocalTverskyLoss(alpha=0.5, beta=0.5, gamma=1.0)
+
         if class_weights is None:
-            class_weights = torch.tensor([0.001, 2000.0, 10.00], dtype=torch.float32)
+            class_weights = torch.tensor([1.0, 50.0, 30.0], dtype=torch.float32)
         else:
             class_weights = torch.tensor(class_weights, dtype=torch.float32)
 
-        # Ensure class_weights length matches num_classes
         if len(class_weights) != 3:
             raise ValueError(f"Length of class_weights ({len(class_weights)}) does not match number of classes ({3}).")
 
@@ -130,12 +179,18 @@ class CombinedLoss(nn.Module):
             dice_loss_val = self.dice_loss(logits, one_hot_target)
             seg_loss_val = seg_loss_val + self.dice_weight * dice_loss_val
 
+        if self.tversky_weight > 0:
+            one_hot_target = F.one_hot(target, num_classes=logits.size(1)).permute(0, 3, 1, 2).float()
+            tversky_loss_val = self.tversky_loss(logits, one_hot_target)
+            seg_loss_val = seg_loss_val + self.tversky_weight * tversky_loss_val
+
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
             depth_pred = depth_pred.squeeze(1)
         if depth_true.ndim == 4 and depth_true.shape[1] == 1:
             depth_true = depth_true.squeeze(1)
         if depth_pred.shape[-2:] != depth_true.shape[-2:]:
-            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear', align_corners=False).squeeze(1)
+            depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
+                                       align_corners=False).squeeze(1)
         depth_loss_val = self.depth_loss(depth_pred, depth_true)
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
@@ -253,7 +308,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    class_weights = torch.tensor([1.0, 50.0, 40.0], dtype=torch.float32).to(device)
+    class_weights = torch.tensor([1.0, 100.0, 90.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
@@ -262,8 +317,9 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
         ce_weight=0.4,
-        dice_weight=0.6,
-        class_weights=class_weights
+        dice_weight=0.3,
+        tversky_weight=0.3,
+        class_weights=class_weights,
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
