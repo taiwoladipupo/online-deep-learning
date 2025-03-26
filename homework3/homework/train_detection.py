@@ -9,6 +9,7 @@ from datetime import datetime
 import numpy as np
 import torch.utils.tensorboard as tb
 import torchvision.transforms as T
+from PIL import Image  # For specifying interpolation in transforms
 
 # Local modules
 from .metrics import ConfusionMatrix
@@ -16,7 +17,51 @@ from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 
 
+#############################################
+# Custom Augmentation for "aug" pipeline
+#############################################
+class CustomAugTransform:
+    def __init__(self, size=(96, 128)):
+        self.size = size
+        self.image_transforms = T.Compose([
+            T.Resize(self.size, interpolation=Image.BILINEAR),
+            T.RandomHorizontalFlip(),
+            T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
+            T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        self.depth_transforms = T.Compose([
+            T.Resize(self.size, interpolation=Image.BILINEAR),
+            T.RandomHorizontalFlip(),
+            T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
+            T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
+            T.ToTensor()
+        ])
+        # For segmentation masks, use nearest-neighbor interpolation and no color jitter/normalize.
+        self.mask_transforms = T.Compose([
+            T.Resize(self.size, interpolation=Image.NEAREST),
+            T.RandomHorizontalFlip(),
+            T.RandomRotation(degrees=15, interpolation=Image.NEAREST),
+            T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.NEAREST),
+            T.ToTensor()
+            # This produces a tensor with values in [0,1]; ensure your dataset loader handles labels appropriately.
+        ])
 
+    def __call__(self, sample):
+        # Expecting sample to be a dictionary with keys "image", "depth", "track"
+        image = self.image_transforms(sample['image'])
+        depth = self.depth_transforms(sample['depth'])
+        track = self.mask_transforms(sample['track'])
+        # If necessary, convert track tensor to integer type.
+        track = track.squeeze(0).long()  # Assuming mask was single channel.
+        return {'image': image, 'depth': depth, 'track': track}
+
+
+#############################################
+# Loss Functions
+#############################################
 class TverskyLoss(nn.Module):
     def __init__(self, alpha=0.5, beta=0.5, smooth=1):
         super(TverskyLoss, self).__init__()
@@ -28,13 +73,11 @@ class TverskyLoss(nn.Module):
         inputs = torch.sigmoid(inputs)
         inputs = inputs.reshape(-1)
         targets = targets.reshape(-1)
-
         true_pos = (inputs * targets).sum()
         false_neg = ((1 - inputs) * targets).sum()
         false_pos = (inputs * (1 - targets)).sum()
-
         tversky_index = (true_pos + self.smooth) / (
-                    true_pos + self.alpha * false_neg + self.beta * false_pos + self.smooth)
+                true_pos + self.alpha * false_neg + self.beta * false_pos + self.smooth)
         return 1 - tversky_index
 
 
@@ -50,16 +93,15 @@ class FocalTverskyLoss(nn.Module):
         inputs = torch.sigmoid(inputs)
         inputs = inputs.reshape(-1)
         targets = targets.reshape(-1)
-
         true_pos = (inputs * targets).sum()
         false_neg = ((1 - inputs) * targets).sum()
         false_pos = (inputs * (1 - targets)).sum()
-
         tversky_index = (true_pos + self.smooth) / (
-                    true_pos + self.alpha * false_neg + self.beta * false_pos + self.smooth)
+                true_pos + self.alpha * false_neg + self.beta * false_pos + self.smooth)
         focal_tversky_loss = (1 - tversky_index) ** self.gamma
         return focal_tversky_loss
-# Loss Functions
+
+
 class FocalLoss(nn.Module):
     def __init__(self, alpha=0.7, gamma=1.5, logits=True, reduction='mean'):
         super(FocalLoss, self).__init__()
@@ -71,47 +113,33 @@ class FocalLoss(nn.Module):
     def forward(self, inputs, targets):
         # inputs shape: [N, C, H, W]
         if self.logits:
-            # Check if targets have an extra (redundant) dimension.
-            # We expect targets to be either [N, H, W] or [N, 1, H, W].
             if targets.ndim == inputs.ndim:
-                # This branch is hit if targets.ndim == 4.
-                # For a valid segmentation label in channel-first format, the channel dimension should be 1.
                 if targets.shape[1] != 1:
-                    # Sometimes the target might be in channel-last format, e.g. [N, H, W, K].
-                    # Check if the last dimension is redundant:
                     if targets.size(-1) != 1 and torch.all(targets == targets[..., 0:1].expand_as(targets)):
-                        # Remove the redundant last dimension.
                         targets = targets[..., 0]
                     else:
                         raise ValueError(f"Unexpected target shape: {targets.shape}. "
                                          "Expected [N, H, W] or [N, 1, H, W] when logits=True.")
-            # At this point, targets should be either [N, H, W] or [N, 1, H, W].
             if targets.ndim == 3:
-                # Convert targets from shape [N, H, W] to one-hot [N, C, H, W]
                 targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
             elif targets.ndim == 4 and targets.shape[1] == 1:
-                # Convert from [N, 1, H, W] to [N, H, W] then one-hot encode.
                 targets = targets.squeeze(1)
                 targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
             else:
-                # If the target still doesn't match expectations, raise an error.
                 raise ValueError(f"Unexpected target shape: {targets.shape}. "
                                  "Expected [N, H, W] or [N, 1, H, W] when logits=True.")
-
-            # Now compute the binary cross-entropy loss with logits.
             BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         else:
             BCE_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
-
         pt = torch.exp(-BCE_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
-
         if self.reduction == 'mean':
             return focal_loss.mean()
         elif self.reduction == 'sum':
             return focal_loss.sum()
         else:
             return focal_loss
+
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1):
@@ -128,8 +156,8 @@ class DiceLoss(nn.Module):
 
 
 class CombinedLoss(nn.Module):
-    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0, ce_weight=1.0,
-                 dice_weight=0.0, tversky_weight=0.0, class_weights=None):
+    def __init__(self, device=None, total_epochs=100, seg_loss_weight=1.0, depth_loss_weight=0.0,
+                 ce_weight=1.0, dice_weight=0.0, tversky_weight=0.0, class_weights=None):
         super(CombinedLoss, self).__init__()
         self.total_epochs = total_epochs
         self.current_epoch = 0
@@ -148,10 +176,8 @@ class CombinedLoss(nn.Module):
             class_weights = torch.tensor([1.0, 50.0, 30.0], dtype=torch.float32)
         else:
             class_weights = torch.tensor(class_weights, dtype=torch.float32)
-
         if len(class_weights) != 3:
-            raise ValueError(f"Length of class_weights ({len(class_weights)}) does not match number of classes ({3}).")
-
+            raise ValueError(f"Length of class_weights ({len(class_weights)}) does not match number of classes (3).")
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
@@ -166,22 +192,25 @@ class CombinedLoss(nn.Module):
         target = target.to(device)
         depth_true = depth_true.to(device)
 
-        if logits.shape[2:] != target.shape[1:]:
-            logits = F.interpolate(logits, size=target.shape[1:], mode='bilinear', align_corners=False)
+        # Use raw logits divided by temperature (do not apply softmax before loss)
+        temperature = 1.5
+        scaled_logits = logits / temperature
 
-        ce_loss_val = self.ce_loss(logits, target)
-        focal_loss_val = self.focal_loss(logits, target)
+        if scaled_logits.shape[2:] != target.shape[1:]:
+            scaled_logits = F.interpolate(scaled_logits, size=target.shape[1:], mode='bilinear', align_corners=False)
 
+        ce_loss_val = self.ce_loss(scaled_logits, target)
+        focal_loss_val = self.focal_loss(scaled_logits, target)
         seg_loss_val = self.ce_weight * ce_loss_val + (1 - self.ce_weight) * focal_loss_val
 
         if self.dice_weight > 0:
-            one_hot_target = F.one_hot(target, num_classes=logits.size(1)).permute(0, 3, 1, 2).float()
-            dice_loss_val = self.dice_loss(logits, one_hot_target)
+            one_hot_target = F.one_hot(target, num_classes=scaled_logits.size(1)).permute(0, 3, 1, 2).float()
+            dice_loss_val = self.dice_loss(scaled_logits, one_hot_target)
             seg_loss_val = seg_loss_val + self.dice_weight * dice_loss_val
 
         if self.tversky_weight > 0:
-            one_hot_target = F.one_hot(target, num_classes=logits.size(1)).permute(0, 3, 1, 2).float()
-            tversky_loss_val = self.tversky_loss(logits, one_hot_target)
+            one_hot_target = F.one_hot(target, num_classes=scaled_logits.size(1)).permute(0, 3, 1, 2).float()
+            tversky_loss_val = self.tversky_loss(scaled_logits, one_hot_target)
             seg_loss_val = seg_loss_val + self.tversky_weight * tversky_loss_val
 
         if depth_pred.ndim == 4 and depth_pred.shape[1] == 1:
@@ -195,98 +224,79 @@ class CombinedLoss(nn.Module):
 
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
+
+#############################################
 # Data Augmentation Transforms
-def get_transform(self, transform_pipeline):
+#############################################
+def get_transform(transform_pipeline):
+    # If transform_pipeline is already a T.Compose, return it.
     if isinstance(transform_pipeline, T.Compose):
         return transform_pipeline
 
-    xform = None
     if transform_pipeline == "default":
-        xform = T.Compose([
-            T.Resize((96, 128)),
+        # Default transforms for images (applied uniformly)
+        return T.Compose([
+            T.Resize((96, 128), interpolation=Image.BILINEAR),
             T.ToTensor(),
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
     elif transform_pipeline == "aug":
-        xform = T.Compose([
-            T.Resize((96, 128)),
-            T.RandomHorizontalFlip(),
-            T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-            T.RandomRotation(degrees=15),
-            T.RandomResizedCrop((96, 128), scale=(0.8, 1.0)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-
-    if xform is None:
+        # Use our custom augmentation that applies different transforms for images, depth, and track.
+        return CustomAugTransform(size=(96, 128))
+    else:
         raise ValueError(f"Invalid transform {transform_pipeline} specified!")
 
-    return xform
 
 def get_val_transforms():
     return T.Compose([
-        T.Resize((96, 128)),
+        T.Resize((96, 128), interpolation=Image.BILINEAR),
         T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225])
+        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
+
 def visualize_augmentations(dataset, transform_pipeline, num_samples=5):
+    # Get the transformation. If using custom augmentation, it returns a callable that expects a sample dict.
+    transform = get_transform(transform_pipeline)
     fig, axes = plt.subplots(num_samples, 3, figsize=(15, num_samples * 5))
     for i in range(num_samples):
         sample = dataset[i]
-        augmented_sample = transform_pipeline(sample)
-
-        image = augmented_sample['image'].transpose(1, 2, 0)  # Convert to HWC format
-        depth = augmented_sample['depth']
-        track = augmented_sample['track']
-
+        augmented_sample = transform(sample)
+        image = augmented_sample['image'].transpose(0, 1).transpose(1, 2)  # Convert CHW to HWC
+        depth = augmented_sample['depth'].squeeze(0)  # Assuming single-channel depth
+        track = augmented_sample['track']  # Already converted to tensor of labels
         axes[i, 0].imshow(image)
         axes[i, 0].set_title('Augmented Image')
         axes[i, 0].axis('off')
-
         axes[i, 1].imshow(depth, cmap='gray')
         axes[i, 1].set_title('Augmented Depth')
         axes[i, 1].axis('off')
-
         axes[i, 2].imshow(track, cmap='gray')
         axes[i, 2].set_title('Augmented Track')
         axes[i, 2].axis('off')
-
     plt.tight_layout()
     plt.show()
 
+
+#############################################
 # Sample Weights
-
+#############################################
 def compute_sample_weights(dataset):
-    """
-    Compute one weight per image sample based on the ratio of rare pixels (labels 1 and 2)
-    to total pixels in the 'track' mask.
-
-    Args:
-        dataset: A dataset where each sample is a dictionary with key 'track'
-                 corresponding to the segmentation mask (assumed to be a NumPy array or similar).
-
-    Returns:
-        sample_weights: A list of floats, one per image sample.
-    """
     sample_weights = []
     epsilon = 1e-6
     for sample in dataset:
-        # Assume sample['track'] is a numpy array of shape (H, W) with integer labels {0,1,2}
-        mask = sample['track']
+        mask = sample['track']  # Assume shape (H, W) with integer labels {0,1,2}
         total_pixels = mask.size
-        # Count the number of pixels with label 1 or 2 (rare classes)
         rare_pixels = np.sum((mask == 1) | (mask == 2))
         rare_ratio = rare_pixels / total_pixels
-        # Compute weight: if there are few rare pixels, the sample gets a higher weight.
         weight = 1.0 / (rare_ratio + epsilon)
         sample_weights.append(weight)
     return sample_weights
 
-    return sample_weights
-# Main Training Loop
 
+#############################################
+# Main Training Loop
+#############################################
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
           batch_size=64, seed=2024, transform_pipeline="default", oversample=False, **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -296,15 +306,16 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
 
-
-    train_dataset = load_data("drive_data/train", transform_pipeline="default",
+    # Use the custom transform for training if specified
+    train_transform = get_transform(transform_pipeline)
+    train_dataset = load_data("drive_data/train", transform_pipeline=train_transform,
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
-
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
     train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
-    val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
+    val_dataset = load_data("drive_data/val", transform_pipeline=get_val_transforms(), shuffle=False)
+    val_data = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     model = load_model(model_name, **kwargs).to(device)
 
@@ -332,31 +343,28 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         loss_func.set_epoch(epoch)
         model.train()
         epoch_train_losses = []
-
         for batch in train_data:
             img = batch["image"].to(device).float()
             label = batch["track"].to(device).long()
             depth_true = batch["depth"].to(device)
 
-            # Ensure the target tensor is correctly shaped
+            # Ensure label is in [N, H, W]
             if label.ndim == 4:
-                # Verify that all values along the last dimension are identical.
                 redundant = True
-                # Compare the first slice with every other slice along the last dimension.
                 for i in range(1, label.shape[-1]):
                     if not torch.equal(label[..., 0], label[..., i]):
                         redundant = False
                         break
                 if redundant:
-                    label = label[..., 0]  # Remove the extra dimension.
+                    label = label[..., 0]
                 else:
-                    raise ValueError(
-                        f"Label has unexpected shape {label.shape} with varying values along the last dimension.")
-            logits, depth_pred = model(img)
-            normalized_logits = F.softmax(logits, dim=1)
+                    raise ValueError(f"Label has unexpected shape {label.shape}.")
 
+            # Get raw logits from the model
+            logits, depth_pred = model(img)
+            # Apply temperature scaling to raw logits (do not apply softmax)
             temperature = 1.5
-            scaled_logits = normalized_logits / temperature
+            scaled_logits = logits / temperature
             if scaled_logits.shape[2:] != label.shape[1:]:
                 scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
@@ -377,32 +385,24 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         epoch_val_losses = []
         depth_errors = []
         confusion_matrix = ConfusionMatrix(num_classes=3)
-
         with torch.no_grad():
             for batch in val_data:
                 img = batch["image"].to(device).float()
                 label = batch["track"].to(device).long()
                 depth_true = batch["depth"].to(device)
-
-                # Ensure the target tensor is correctly shaped
                 if label.ndim == 4:
-                    # Verify that all values along the last dimension are identical.
                     redundant = True
-                    # Compare the first slice with every other slice along the last dimension.
                     for i in range(1, label.shape[-1]):
                         if not torch.equal(label[..., 0], label[..., i]):
                             redundant = False
                             break
                     if redundant:
-                        label = label[..., 0]  # Remove the extra dimension.
+                        label = label[..., 0]
                     else:
-                        raise ValueError(
-                            f"Label has unexpected shape {label.shape} with varying values along the last dimension.")
+                        raise ValueError(f"Label has unexpected shape {label.shape}.")
 
                 logits, depth_pred = model(img)
-                normalized_logits = F.softmax(logits, dim=1)
-                temperature = 1.5
-                scaled_logits = normalized_logits / temperature
+                scaled_logits = logits / temperature
                 if scaled_logits.shape[2:] != label.shape[1:]:
                     scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear',
                                                   align_corners=False)
@@ -412,7 +412,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
                 loss = loss_func(scaled_logits, label, depth_pred, depth_true)
                 epoch_val_losses.append(loss.item())
-
                 pred = scaled_logits.argmax(dim=1)
                 confusion_matrix.add(pred, label)
                 depth_errors.append(F.l1_loss(depth_pred, depth_true).item())
@@ -422,13 +421,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             total = pred_classes.numel()
             pred_dist = {int(k): f"{(v / total) * 100:.2f}%" for k, v in
                          zip(*torch.unique(pred_classes, return_counts=True))}
-
             print(f"\nEpoch {epoch + 1}/{num_epoch}")
             print("Average class probabilities:", avg_probs)
             print("Predicted distribution:", pred_dist)
             print("Pred unique:", torch.unique(pred_classes))
             print("Target unique:", torch.unique(label))
-
             miou = confusion_matrix.compute()
             mean_depth_mae = np.mean(depth_errors)
             print("mIoU:", miou["iou"])
@@ -437,27 +434,24 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
                                     (confusion_matrix.matrix.sum(1) + confusion_matrix.matrix.sum(0) - np.diag(
                                         confusion_matrix.matrix) + 1e-6)):
                 print(f"Class {i} IoU: {iou:.3f}")
-
             if miou["iou"] > best_miou:
                 best_miou = miou["iou"]
                 torch.save(model.state_dict(), log_dir / "best_model.th")
                 print(">>> Best model updated <<<")
-
             logger.add_scalar("val/miou", miou["iou"], epoch)
             logger.add_scalar("val/seg_accuracy", miou["accuracy"], epoch)
             logger.add_scalar("val/depth_mae", mean_depth_mae, epoch)
-
             print(
                 f"Epoch {epoch + 1:2d}/{num_epoch:2d} - Train loss: {np.mean(epoch_train_losses):.4f}, Val loss: {np.mean(epoch_val_losses):.4f}")
-
         scheduler.step(np.mean(epoch_val_losses))
-
     save_model(model)
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp_dir", type=str, default="logs")
     parser.add_argument("--model_name", type=str, required=True)
