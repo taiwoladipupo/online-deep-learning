@@ -26,38 +26,47 @@ class FocalLoss(nn.Module):
     def forward(self, inputs, targets):
         # inputs shape: [N, C, H, W]
         if self.logits:
-            # If target has one extra dimension (e.g. [N, H, W, K])
-            if targets.ndim == inputs.ndim + 1:
-                # Check if the extra dimension is redundant by comparing the first and last slices.
-                if torch.all(targets[..., 0] == targets[..., -1]):
-                    targets = targets[..., 0]  # Remove the extra dimension.
-                else:
-                    raise ValueError(f"Unexpected target shape: {targets.shape}. "
-                                     "Extra dimension values are not identical.")
-            # Now, if the target shape does not match inputs, try to convert it.
-            if targets.shape != inputs.shape:
-                # If targets are class indices with shape [N, H, W]
-                if targets.ndim == inputs.ndim - 1:
-                    targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
-                # If targets are [N, 1, H, W]
-                elif targets.ndim == inputs.ndim and targets.shape[1] == 1:
-                    targets = targets.squeeze(1)  # now [N, H, W]
-                    targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
-                else:
-                    raise ValueError(f"Unexpected target shape: {targets.shape}. "
-                                     "Expected [N, H, W] or [N, 1, H, W] when logits=True.")
+            # Check if targets have an extra (redundant) dimension.
+            # We expect targets to be either [N, H, W] or [N, 1, H, W].
+            if targets.ndim == inputs.ndim:
+                # This branch is hit if targets.ndim == 4.
+                # For a valid segmentation label in channel-first format, the channel dimension should be 1.
+                if targets.shape[1] != 1:
+                    # Sometimes the target might be in channel-last format, e.g. [N, H, W, K].
+                    # Check if the last dimension is redundant:
+                    if targets.size(-1) != 1 and torch.all(targets == targets[..., 0:1].expand_as(targets)):
+                        # Remove the redundant last dimension.
+                        targets = targets[..., 0]
+                    else:
+                        raise ValueError(f"Unexpected target shape: {targets.shape}. "
+                                         "Expected [N, H, W] or [N, 1, H, W] when logits=True.")
+            # At this point, targets should be either [N, H, W] or [N, 1, H, W].
+            if targets.ndim == 3:
+                # Convert targets from shape [N, H, W] to one-hot [N, C, H, W]
+                targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
+            elif targets.ndim == 4 and targets.shape[1] == 1:
+                # Convert from [N, 1, H, W] to [N, H, W] then one-hot encode.
+                targets = targets.squeeze(1)
+                targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
+            else:
+                # If the target still doesn't match expectations, raise an error.
+                raise ValueError(f"Unexpected target shape: {targets.shape}. "
+                                 "Expected [N, H, W] or [N, 1, H, W] when logits=True.")
+
+            # Now compute the binary cross-entropy loss with logits.
             BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         else:
             BCE_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
+
         pt = torch.exp(-BCE_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+
         if self.reduction == 'mean':
             return focal_loss.mean()
         elif self.reduction == 'sum':
             return focal_loss.sum()
         else:
             return focal_loss
-
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1):
