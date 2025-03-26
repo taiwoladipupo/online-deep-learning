@@ -138,10 +138,10 @@ class ConfusionMatrix:
         except:
             num_classes = 3
 
-        preds_one_hot = F.one_hot(preds, num_classes).float()
-        labels_one_hot = F.one_hot(labels, num_classes).float()
-        # preds_one_hot = (preds.type_as(labels).cpu()[:, None] == self.class_range[None]).int()
-        # labels_one_hot = (labels.cpu()[:, None] == self.class_range[None]).int()
+        # preds_one_hot = F.one_hot(preds, num_classes).float()
+        # labels_one_hot = F.one_hot(labels, num_classes).float()
+        preds_one_hot = (preds.type_as(labels).cpu()[:, None] == self.class_range[None]).int()
+        labels_one_hot = (labels.cpu()[:, None] == self.class_range[None]).int()
         update = labels_one_hot.T @ preds_one_hot
 
         self.matrix += update
