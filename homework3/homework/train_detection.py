@@ -89,6 +89,11 @@ def train(
                    "track": track.shape,
                    "target_indices": target_indices.shape,})
 
+            # Ensure the tensors have compatible dimensions
+            if pred_depth.shape[2] != depth.shape[2]:
+                pred_depth = F.interpolate(pred_depth, size=(depth.shape[2], depth.shape[3]), mode='bilinear',
+                                           align_corners=False)
+
             training_metrics.add(pred_labels, track,pred_depth, depth)
 
             loss = alpha * ce_loss(pred, target_indices) + beta * mse_loss(pred_depth, depth)
