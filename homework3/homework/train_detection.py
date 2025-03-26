@@ -12,6 +12,7 @@ from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 from .metrics import DetectionMetric
 
+
 def train(
         exp_dir: str = "logs",
         model_name: str = "Detector",
@@ -52,7 +53,6 @@ def train(
     mse_loss = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-
     global_step = 0
     training_metrics = DetectionMetric()
     validation_metrics = DetectionMetric()
@@ -65,14 +65,14 @@ def train(
         model.train()
 
         for batch in train_data:
-            batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+            batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in
+                     batch.items()}
             img = batch["image"]
             track = batch["track"]
             depth = batch["depth"]
 
             optimizer.zero_grad()
             pred, pred_depth = model(img)
-
 
             # Resizing Pred
             if pred.shape[2:] != track.shape[1:]:
@@ -85,7 +85,7 @@ def train(
             #print("Before forced resize: pred_labels:", pred_labels.shape, "track", track.shape)
             if track.shape != pred_labels.shape:
                 #print("Before resizing, track shape:", track.shape, "pred labels shape", pred_labels.shape)
-                target_size =tuple(int(x) for x in pred_labels.shape[-2:])
+                target_size = tuple(int(x) for x in pred_labels.shape[-2:])
                 track = F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').squeeze(1).long()
                 #print("After resizing, track shape:", track.shape)
             assert pred_labels.shape == track.shape
@@ -113,21 +113,20 @@ def train(
                                            align_corners=False)
                 print("After interpolation: pred_depth shape =", pred_depth.shape)
 
-
             # Squeeze them back if necessary
             if pred_depth.ndim == 4:
                 pred_depth = pred_depth.squeeze(1)
             if depth.ndim == 4:
                 depth = depth.squeeze(1)
             print("Before metric add: pred_depth shape =", pred_depth.shape, "depth shape =", depth.shape)
-            assert pred_depth.shape == depth.shape, "Shape mismatch: pred_depth {} vs depth {}".format(pred_depth.shape, depth.shape)
+            assert pred_depth.shape == depth.shape, "Shape mismatch: pred_depth {} vs depth {}".format(pred_depth.shape,
+                                                                                                       depth.shape)
 
             # # Squeeze them back
             # pred_depth = pred_depth.squeeze(1)
             # depth = depth.squeeze(1)
-
-
-            logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
+            original_track = track.clone()
+            logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1, 2).float()
 
             # print({"img": img.shape,
             #        "depth": depth.shape,
@@ -144,7 +143,7 @@ def train(
             #         pred_depth = pred_depth.unsqueeze(1)
             #     pred_depth = F.interpolate(pred_depth, size=(depth.shape[2], depth.shape[3]), mode='bilinear',
             #                                align_corners=False)
-            training_metrics.add(pred_labels, track,pred_depth, depth)
+            training_metrics.add(pred_labels, original_track, pred_depth, depth)
 
             loss = alpha * ce_loss(pred, logits) + beta * mse_loss(pred_depth, depth)
             loss.backward()
@@ -156,7 +155,8 @@ def train(
             model.eval()
 
             for batch in val_data:
-                batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+                batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in
+                         batch.items()}
                 img = batch["image"]
                 track = batch["track"]
                 depth = batch["depth"]
@@ -172,9 +172,9 @@ def train(
                     track = track.squeeze(1)
 
                 if track.shape != pred_labels.shape:
-                   #print("Before resizing, track shape:", track.shape, "pred labels shape",pred_labels.shape)
-                    target_size =tuple((int(x) for x in pred_labels.shape[-2:]))
-                    track =F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').long()
+                    #print("Before resizing, track shape:", track.shape, "pred labels shape",pred_labels.shape)
+                    target_size = tuple((int(x) for x in pred_labels.shape[-2:]))
+                    track = F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').long()
                     #print("After resizing, track shape:", track.shape)
 
                 assert pred_labels.shape == track.shape
@@ -188,7 +188,6 @@ def train(
                 #     depth = depth.unsqueeze(1)
                 # if pred_depth.ndim == 3:
                 #     pred_depth = pred_depth.unsqueeze(1)
-
 
                 # Check if spatial dimensions differ
                 if pred_depth.shape[-2:] != depth.shape[-2:]:
@@ -243,7 +242,6 @@ def train(
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
 
 
-
 # Debug helper: log shapes before and after each operation.
 def debug_resize(pred_depth, depth):
     print("Initial pred_depth shape:", pred_depth.shape)
@@ -269,7 +267,6 @@ def debug_resize(pred_depth, depth):
     print("After squeeze pred_depth shape:", pred_depth.shape)
     print("After squeeze depth shape:", depth.shape)
     return pred_depth, depth
-
 
 
 if __name__ == "__main__":
