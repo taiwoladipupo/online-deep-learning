@@ -184,14 +184,14 @@ class CombinedLoss(nn.Module):
 
 
 
-
-def get_val_transforms():
-    return T.Compose([
-        T.Resize((96, 128), interpolation=Image.BILINEAR),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-
+#
+# def get_val_transforms():
+#     return T.Compose([
+#         T.Resize((96, 128), interpolation=Image.BILINEAR),
+#         T.ToTensor(),
+#         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#     ])
+#
 
 
 #############################################
