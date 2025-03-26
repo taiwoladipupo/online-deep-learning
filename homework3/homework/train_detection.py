@@ -16,47 +16,47 @@ from .metrics import ConfusionMatrix
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 
-
-#############################################
-# Custom Augmentation for "aug" pipeline
-#############################################
-class CustomAugTransform:
-    def __init__(self, size=(96, 128)):
-        self.size = size
-        self.image_transforms = T.Compose([
-            T.Resize(self.size, interpolation=Image.BILINEAR),
-            T.RandomHorizontalFlip(),
-            T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-            T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
-            T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        self.depth_transforms = T.Compose([
-            T.Resize(self.size, interpolation=Image.BILINEAR),
-            T.RandomHorizontalFlip(),
-            T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
-            T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
-            T.ToTensor()
-        ])
-        # For segmentation masks, use nearest-neighbor interpolation and no color jitter/normalize.
-        self.mask_transforms = T.Compose([
-            T.Resize(self.size, interpolation=Image.NEAREST),
-            T.RandomHorizontalFlip(),
-            T.RandomRotation(degrees=15, interpolation=Image.NEAREST),
-            T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.NEAREST),
-            T.ToTensor()
-            # This produces a tensor with values in [0,1]; ensure your dataset loader handles labels appropriately.
-        ])
-
-    def __call__(self, sample):
-        # Expecting sample to be a dictionary with keys "image", "depth", "track"
-        image = self.image_transforms(sample['image'])
-        depth = self.depth_transforms(sample['depth'])
-        track = self.mask_transforms(sample['track'])
-        # If necessary, convert track tensor to integer type.
-        track = track.squeeze(0).long()  # Assuming mask was single channel.
-        return {'image': image, 'depth': depth, 'track': track}
+#
+# #############################################
+# # Custom Augmentation for "aug" pipeline
+# #############################################
+# class CustomAugTransform:
+#     def __init__(self, size=(96, 128)):
+#         self.size = size
+#         self.image_transforms = T.Compose([
+#             T.Resize(self.size, interpolation=Image.BILINEAR),
+#             T.RandomHorizontalFlip(),
+#             T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+#             T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
+#             T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
+#             T.ToTensor(),
+#             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+#         ])
+#         self.depth_transforms = T.Compose([
+#             T.Resize(self.size, interpolation=Image.BILINEAR),
+#             T.RandomHorizontalFlip(),
+#             T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
+#             T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
+#             T.ToTensor()
+#         ])
+#         # For segmentation masks, use nearest-neighbor interpolation and no color jitter/normalize.
+#         self.mask_transforms = T.Compose([
+#             T.Resize(self.size, interpolation=Image.NEAREST),
+#             T.RandomHorizontalFlip(),
+#             T.RandomRotation(degrees=15, interpolation=Image.NEAREST),
+#             T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.NEAREST),
+#             T.ToTensor()
+#             # This produces a tensor with values in [0,1]; ensure your dataset loader handles labels appropriately.
+#         ])
+#
+#     def __call__(self, sample):
+#         # Expecting sample to be a dictionary with keys "image", "depth", "track"
+#         image = self.image_transforms(sample['image'])
+#         depth = self.depth_transforms(sample['depth'])
+#         track = self.mask_transforms(sample['track'])
+#         # If necessary, convert track tensor to integer type.
+#         track = track.squeeze(0).long()  # Assuming mask was single channel.
+#         return {'image': image, 'depth': depth, 'track': track}
 
 
 #############################################
