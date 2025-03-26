@@ -253,7 +253,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    class_weights = torch.tensor([1.0, 30.0, 25.0], dtype=torch.float32).to(device)
+    class_weights = torch.tensor([1.0, 50.0, 40.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
@@ -261,8 +261,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
-        ce_weight=0.5,
-        dice_weight=0.5,
+        ce_weight=0.4,
+        dice_weight=0.6,
         class_weights=class_weights
     )
 
