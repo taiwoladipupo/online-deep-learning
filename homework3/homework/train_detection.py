@@ -229,22 +229,29 @@ class CombinedLoss(nn.Module):
 # Data Augmentation Transforms
 #############################################
 def get_transform(transform_pipeline):
-    # If transform_pipeline is already a T.Compose, return it.
     if isinstance(transform_pipeline, T.Compose):
         return transform_pipeline
 
     if transform_pipeline == "default":
-        # Default transforms for images (applied uniformly)
-        return T.Compose([
+        xform = T.Compose([
             T.Resize((96, 128), interpolation=Image.BILINEAR),
             T.ToTensor(),
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
     elif transform_pipeline == "aug":
-        # Use our custom augmentation that applies different transforms for images, depth, and track.
-        return CustomAugTransform(size=(96, 128))
+        xform = T.Compose([
+            T.Resize((96, 128), interpolation=Image.BILINEAR),
+            T.RandomHorizontalFlip(),
+            T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
+            T.RandomResizedCrop((96, 128), scale=(0.8, 1.0), interpolation=Image.BILINEAR),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
     else:
         raise ValueError(f"Invalid transform {transform_pipeline} specified!")
+
+    return xform
 
 
 def get_val_transforms():
