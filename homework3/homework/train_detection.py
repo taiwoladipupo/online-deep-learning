@@ -61,7 +61,7 @@ def train(
     for epoch in range(num_epoch):
         # clear all available metrics
         training_metrics.reset()
-
+        validation_metrics.reset()
         model.train()
 
         for batch in train_data:
@@ -74,57 +74,81 @@ def train(
             optimizer.zero_grad()
             pred, pred_depth = model(img)
 
-            # Resizing Pred
-            if pred.shape[2:] != track.shape[1:]:
-                target_size = tuple(int(x) for x in track.shape[1:])
-                pred = F.interpolate(pred, size=target_size, mode='bilinear', align_corners=False)
-            pred_labels = pred.argmax(dim=1)
-
-            if track.dim() == 4:
+            # Segmentation resizing
+            if track.ndim == 4:
                 track = track.squeeze(1)
-            #print("Before forced resize: pred_labels:", pred_labels.shape, "track", track.shape)
-            if track.shape != pred_labels.shape:
-                #print("Before resizing, track shape:", track.shape, "pred labels shape", pred_labels.shape)
-                target_size = tuple(int(x) for x in pred_labels.shape[-2:])
-                track = F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').squeeze(1).long()
-                #print("After resizing, track shape:", track.shape)
-            assert pred_labels.shape == track.shape
+            target_size_seg = tuple(int(x) for x in track.shape[-2:])  # ground truth segmentation size
+            if pred.shape[2:] != target_size_seg:
+                pred = F.interpolate(pred, size=target_size_seg, mode='bilinear', align_corners=False)
+            pred_labels = pred.argmax(dim=1)  # shape [B, H_gt, W_gt]
+            assert pred_labels.shape == track.shape, f"Segmentation mismatch: {pred_labels.shape} vs {track.shape}"
 
-            if depth.ndim == 3 or pred_depth.ndim == 3 or (pred_depth.shape[-2:] != depth.shape[-2:]):
-                pred_depth, depth = debug_resize(pred_depth, depth)
-            assert pred_depth.shape == depth.shape, f"Shape mismatch: pred_depth {pred_depth.shape} vs depth {depth.shape}"
+            # Depth Resizing
+            target_size_depth = tuple(int(x) for x in depth.shape[-2:])  # ground truth depth size
+            if depth.ndim == 3:
+                depth = depth.unsqueeze(1)
+            if pred_depth.ndim == 3:
+                pred_depth = pred_depth.unsqueeze(1)
+            if pred_depth.shape[-2:] != target_size_depth:
+                pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
+            if depth.shape[-2:] != target_size_depth:
+                depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
+            # Squeeze to [B, H, W]
+            pred_depth = pred_depth.squeeze(1)
+            depth = depth.squeeze(1)
+            assert pred_depth.shape == depth.shape, f"Depth mismatch: {pred_depth.shape} vs {depth.shape}"
 
-            # if depth.ndim == 3:
-            #     depth = depth.unsqueeze(1)
-            # if pred_depth.ndim == 3:
-            #     pred_depth = pred_depth.unsqueeze(1)
-
-            print("After unsqueeze pred_depth shape:", pred_depth.shape)
-            print("After unsqueeze depth shape:", depth.shape)
-
-            # Check if spatial dimensions differ
-            if pred_depth.shape[-2:] != depth.shape[-2:]:
-                print("Before interpolation: pred_depth shape =", pred_depth.shape, "depth shape =", depth.shape)
-                target_size = tuple(int(x) for x in depth.shape[-2:])  # e.g., (H, W) from ground truth depth
-                # Upsample pred_depth to match ground truth depth resolution.
-                pred_depth = F.interpolate(pred_depth,
-                                           size=target_size,
-                                           mode='bilinear',
-                                           align_corners=False)
-                print("After interpolation: pred_depth shape =", pred_depth.shape)
-
-            # Squeeze them back if necessary
-            if pred_depth.ndim == 4:
-                pred_depth = pred_depth.squeeze(1)
-            if depth.ndim == 4:
-                depth = depth.squeeze(1)
-            print("Before metric add: pred_depth shape =", pred_depth.shape, "depth shape =", depth.shape)
-            assert pred_depth.shape == depth.shape, "Shape mismatch: pred_depth {} vs depth {}".format(pred_depth.shape,
-                                                                                                       depth.shape)
-
-            # # Squeeze them back
-            # pred_depth = pred_depth.squeeze(1)
-            # depth = depth.squeeze(1)
+            # # Resizing Pred
+            # if pred.shape[2:] != track.shape[1:]:
+            #     target_size = tuple(int(x) for x in track.shape[1:])
+            #     pred = F.interpolate(pred, size=target_size, mode='bilinear', align_corners=False)
+            # pred_labels = pred.argmax(dim=1)
+            #
+            # if track.dim() == 4:
+            #     track = track.squeeze(1)
+            # #print("Before forced resize: pred_labels:", pred_labels.shape, "track", track.shape)
+            # if track.shape != pred_labels.shape:
+            #     #print("Before resizing, track shape:", track.shape, "pred labels shape", pred_labels.shape)
+            #     target_size = tuple(int(x) for x in pred_labels.shape[-2:])
+            #     track = F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').squeeze(1).long()
+            #     #print("After resizing, track shape:", track.shape)
+            # assert pred_labels.shape == track.shape
+            #
+            # if depth.ndim == 3 or pred_depth.ndim == 3 or (pred_depth.shape[-2:] != depth.shape[-2:]):
+            #     pred_depth, depth = debug_resize(pred_depth, depth)
+            # assert pred_depth.shape == depth.shape, f"Shape mismatch: pred_depth {pred_depth.shape} vs depth {depth.shape}"
+            #
+            # # if depth.ndim == 3:
+            # #     depth = depth.unsqueeze(1)
+            # # if pred_depth.ndim == 3:
+            # #     pred_depth = pred_depth.unsqueeze(1)
+            #
+            # print("After unsqueeze pred_depth shape:", pred_depth.shape)
+            # print("After unsqueeze depth shape:", depth.shape)
+            #
+            # # Check if spatial dimensions differ
+            # if pred_depth.shape[-2:] != depth.shape[-2:]:
+            #     print("Before interpolation: pred_depth shape =", pred_depth.shape, "depth shape =", depth.shape)
+            #     target_size = tuple(int(x) for x in depth.shape[-2:])  # e.g., (H, W) from ground truth depth
+            #     # Upsample pred_depth to match ground truth depth resolution.
+            #     pred_depth = F.interpolate(pred_depth,
+            #                                size=target_size,
+            #                                mode='bilinear',
+            #                                align_corners=False)
+            #     print("After interpolation: pred_depth shape =", pred_depth.shape)
+            #
+            # # Squeeze them back if necessary
+            # if pred_depth.ndim == 4:
+            #     pred_depth = pred_depth.squeeze(1)
+            # if depth.ndim == 4:
+            #     depth = depth.squeeze(1)
+            # print("Before metric add: pred_depth shape =", pred_depth.shape, "depth shape =", depth.shape)
+            # assert pred_depth.shape == depth.shape, "Shape mismatch: pred_depth {} vs depth {}".format(pred_depth.shape,
+            #                                                                                            depth.shape)
+            #
+            # # # Squeeze them back
+            # # pred_depth = pred_depth.squeeze(1)
+            # # depth = depth.squeeze(1)
             original_track = track.clone()
             logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1, 2).float()
 
@@ -150,9 +174,9 @@ def train(
             optimizer.step()
 
             global_step += 1
-
+        model.eval()
         with torch.inference_mode():
-            model.eval()
+
 
             for batch in val_data:
                 batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in
@@ -170,19 +194,44 @@ def train(
 
                 if track.dim() == 4:
                     track = track.squeeze(1)
+                target_size_seg = tuple((int(x) for x in track.shape[-2:]))
+                if pred.shape[2:] != target_size_seg:
+                    pred = F.interpolate(pred, size=target_size_seg, mode='bilinear', align_corners=False)
+                pred_labels = pred.argmax(dim=1)
 
-                if track.shape != pred_labels.shape:
-                    #print("Before resizing, track shape:", track.shape, "pred labels shape",pred_labels.shape)
-                    target_size = tuple((int(x) for x in pred_labels.shape[-2:]))
-                    track = F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').long()
-                    #print("After resizing, track shape:", track.shape)
+                if pred_labels.shape != track.shape:
+                    pred_labels = F.interpolate(pred_labels.unsqueeze(1).float(), size=target_size_seg, mode='nearest')
+                    pred_labels = pred_labels.squeeze(1).long()
 
-                assert pred_labels.shape == track.shape
-                # Resizing depth
+                assert pred_labels.shape == track.shape, f"Validation segmentation mismatch: {pred_labels.shape} vs {track.shape}"
 
-                if depth.ndim == 3 or pred_depth.ndim == 3 or (pred_depth.shape[-2:] != depth.shape[-2:]):
-                    pred_depth, depth = debug_resize(pred_depth, depth)
-                assert pred_depth.shape == depth.shape, f"Shape mismatch: pred_depth {pred_depth.shape} vs depth {depth.shape}"
+                target_size_depth = tuple(int(x) for x in depth.shape[-2:])
+                if depth.ndim == 3:
+                    depth = depth.unsqueeze(1)
+                if pred_depth.ndim == 3:
+                    pred_depth = pred_depth.unsqueeze(1)
+                if pred_depth.shape[-2:] != target_size_depth:
+                    pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
+                if depth.shape[-2:] != target_size_depth:
+                    depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
+                pred_depth = pred_depth.squeeze(1)
+                depth = depth.squeeze(1)
+                assert pred_depth.shape == depth.shape, f"Validation depth mismatch: {pred_depth.shape} vs {depth.shape}"
+
+                validation_metrics.add(pred_labels, track, pred_depth, depth)
+
+                # if track.shape != pred_labels.shape:
+                #     #print("Before resizing, track shape:", track.shape, "pred labels shape",pred_labels.shape)
+                #     target_size = tuple((int(x) for x in pred_labels.shape[-2:]))
+                #     track = F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').long()
+                #     #print("After resizing, track shape:", track.shape)
+                #
+                # assert pred_labels.shape == track.shape
+                # # Resizing depth
+                #
+                # if depth.ndim == 3 or pred_depth.ndim == 3 or (pred_depth.shape[-2:] != depth.shape[-2:]):
+                #     pred_depth, depth = debug_resize(pred_depth, depth)
+                # assert pred_depth.shape == depth.shape, f"Shape mismatch: pred_depth {pred_depth.shape} vs depth {depth.shape}"
 
                 # if depth.ndim == 3:
                 #     depth = depth.unsqueeze(1)
