@@ -143,7 +143,7 @@ def train(
             #         pred_depth = pred_depth.unsqueeze(1)
             #     pred_depth = F.interpolate(pred_depth, size=(depth.shape[2], depth.shape[3]), mode='bilinear',
             #                                align_corners=False)
-            training_metrics.add(pred_labels, original_track, depth, pred_depth)
+            training_metrics.add(pred_labels, original_track, pred_depth ,depth)
 
             loss = alpha * ce_loss(pred, logits) + beta * mse_loss(pred_depth, depth)
             loss.backward()
@@ -205,7 +205,7 @@ def train(
                 assert pred_depth.shape == depth.shape
 
                 # pred_labels = pred.argmax(dim=1)
-                validation_metrics.add(pred_labels, track, depth, pred_depth)
+                validation_metrics.add(pred_labels, track, pred_depth, depth)
 
         # log accuracy to tensorboard
         computed_validation_metrics = validation_metrics.compute()
@@ -244,16 +244,16 @@ def train(
 
 # Debug helper: log shapes before and after each operation.
 def debug_resize(pred_depth, depth):
-    print("Initial pred_depth shape:", pred_depth.shape)
-    print("Initial depth shape:", depth.shape)
+    # print("Initial pred_depth shape:", pred_depth.shape)
+    # print("Initial depth shape:", depth.shape)
 
     if depth.ndim == 3:
         depth = depth.unsqueeze(1)
     if pred_depth.ndim == 3:
         pred_depth = pred_depth.unsqueeze(1)
 
-    print("After unsqueeze pred_depth shape:", pred_depth.shape)
-    print("After unsqueeze depth shape:", depth.shape)
+    # print("After unsqueeze pred_depth shape:", pred_depth.shape)
+    # print("After unsqueeze depth shape:", depth.shape)
 
     if pred_depth.shape[-2:] != depth.shape[-2:]:
         target_size = tuple(int(x) for x in depth.shape[-2:])
@@ -264,8 +264,8 @@ def debug_resize(pred_depth, depth):
         pred_depth = pred_depth.squeeze(1)
     if depth.ndim == 4:
         depth = depth.squeeze(1)
-    print("After squeeze pred_depth shape:", pred_depth.shape)
-    print("After squeeze depth shape:", depth.shape)
+    # print("After squeeze pred_depth shape:", pred_depth.shape)
+    # print("After squeeze depth shape:", depth.shape)
     return pred_depth, depth
 
 
