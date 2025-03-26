@@ -183,7 +183,6 @@ class UpBlock(nn.Module):
         return out
 
 
-# --- Detector Model ---
 class Detector(nn.Module):
     def __init__(self, num_classes=3):
         """
@@ -255,25 +254,25 @@ class Detector(nn.Module):
         pred = logits.argmax(dim=1)
         depth = raw_depth  # Already scaled by Sigmoid
         return pred, depth
-    def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Used for inference, takes an image and returns class labels and normalized depth.
-
-        Args:
-            x (torch.FloatTensor): image with shape (B, 3, h, w) and values in [0, 1]
-
-        Returns:
-            tuple:
-              - pred: class labels {0, 1, 2} with shape (B, h, w)
-              - depth: normalized depth [0, 1] with shape (B, h, w)
-        """
-        logits, raw_depth = self(x)
-        # Print shapes for debugging
-        # print("Logits shape:", logits.shape, "Raw depth shape:", raw_depth.shape)
-        pred = logits.argmax(dim=1)
-        # Optionally, post-process depth if needed; here raw_depth is already scaled via Sigmoid.
-        depth = raw_depth
-        return pred, depth
+    # def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    #     """
+    #     Used for inference, takes an image and returns class labels and normalized depth.
+    #
+    #     Args:
+    #         x (torch.FloatTensor): image with shape (B, 3, h, w) and values in [0, 1]
+    #
+    #     Returns:
+    #         tuple:
+    #           - pred: class labels {0, 1, 2} with shape (B, h, w)
+    #           - depth: normalized depth [0, 1] with shape (B, h, w)
+    #     """
+    #     logits, raw_depth = self(x)
+    #     # Print shapes for debugging
+    #     # print("Logits shape:", logits.shape, "Raw depth shape:", raw_depth.shape)
+    #     pred = logits.argmax(dim=1)
+    #     # Optionally, post-process depth if needed; here raw_depth is already scaled via Sigmoid.
+    #     depth = raw_depth
+    #     return pred, depth
 
 MODEL_FACTORY = {
     "classifier": Classifier,

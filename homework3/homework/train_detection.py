@@ -173,6 +173,7 @@ def train(
                 if pred_depth.ndim == 3:
                     pred_depth = pred_depth.unsqueeze(1)
                 target_size_depth = tuple(int(x) for x in depth.shape[-2:])
+
                 pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
                 depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
 
@@ -181,9 +182,9 @@ def train(
                 print("After resizing dbth:pred_depth:", pred_depth.shape, "depth:", depth.shape)
                 assert pred_depth.shape == depth.shape
 
-                # Squeeze them back
-                pred_depth = pred_depth.squeeze()
-                depth = depth.squeeze()
+            
+            
+
                 # pred_labels = pred.argmax(dim=1)
                 validation_metrics.add(pred_labels, track, pred_depth, depth)
 
