@@ -1,7 +1,7 @@
 import argparse
 from datetime import datetime
 from pathlib import Path
-
+import torch.nn.functional as F
 import numpy as np
 import torch
 import torch.utils.tensorboard as tb
@@ -73,6 +73,9 @@ def train(
             optimizer.zero_grad()
             pred, pred_depth = model(img)
             pred_labels = pred.argmax(dim=1)
+
+            if pred.shape[2:] != track.shape[1:]:
+                pred = F.interpolate(pred, size=track.shape[1:], mode='bilinear', align_corners=False)
 
             if track.dim() == 4:
                 track = track.squeeze(1)  # Remove the extra dimension if necessary
