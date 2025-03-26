@@ -24,9 +24,17 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, inputs, targets):
-        # inputs: [N, C, H, W]
-        # If using logits, targets must be one-hot with shape [N, C, H, W]
+        # inputs shape: [N, C, H, W]
         if self.logits:
+            # If target has one extra dimension (e.g. [N, H, W, K])
+            if targets.ndim == inputs.ndim + 1:
+                # Check if the extra dimension is redundant by comparing the first and last slices.
+                if torch.all(targets[..., 0] == targets[..., -1]):
+                    targets = targets[..., 0]  # Remove the extra dimension.
+                else:
+                    raise ValueError(f"Unexpected target shape: {targets.shape}. "
+                                     "Extra dimension values are not identical.")
+            # Now, if the target shape does not match inputs, try to convert it.
             if targets.shape != inputs.shape:
                 # If targets are class indices with shape [N, H, W]
                 if targets.ndim == inputs.ndim - 1:
@@ -37,7 +45,7 @@ class FocalLoss(nn.Module):
                     targets = F.one_hot(targets, num_classes=inputs.shape[1]).permute(0, 3, 1, 2).float()
                 else:
                     raise ValueError(f"Unexpected target shape: {targets.shape}. "
-                                     f"Expected [N, H, W] or [N, 1, H, W] when logits=True.")
+                                     "Expected [N, H, W] or [N, 1, H, W] when logits=True.")
             BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         else:
             BCE_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
@@ -49,6 +57,7 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
         else:
             return focal_loss
+
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1):
