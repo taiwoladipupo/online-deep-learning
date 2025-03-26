@@ -149,8 +149,10 @@ def train(
                     track = track.squeeze(1)
 
                 if track.shape != pred_labels.shape:
+                    print("Before resizing, track shape:", track.shape, "pred labels shape",pred_labels.shape)
                     target_size =tuple((int(x) for x in pred_labels.shape[-2:]))
                     track =F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').long()
+                    print("After resizing, track shape:", track.shape)
 
                 assert pred_labels.shape == track.shape
                 # Resizing depth
