@@ -77,14 +77,14 @@ def train(
 
             # Resizing Pred
             if pred.shape[2:] != track.shape[1:]:
-                pred = F.interpolate(pred, size=track.shape[1:], mode='bilinear', align_corners=False)
+                pred = F.interpolate(pred, size=tuple(track.shape[1:]), mode='bilinear', align_corners=False)
             pred_labels = pred_labels.argmax(dim=1)
 
             if track.dim() == 4:
                 track = track.squeeze(1)
             if track.shape != pred_labels.shape:
                 track = F.interpolate(track.unsqueeze(1), pred_labels.unsqueeze(0), mode='nearest').squeeze(1).long()
-            target_size = track.shape[-2:]
+            target_size = tuple(track.shape[-2:])
 
 
             if depth.ndim == 3:
@@ -136,18 +136,18 @@ def train(
                 pred, pred_depth = model(img)
 
                 if pred.shape[2:] != track.shape[1:]:
-                    pred = F.interpolate(pred, size=track.shape[1:], mode='bilinear', align_corners=False)
+                    pred = F.interpolate(pred, size=tuple(track.shape[1:]), mode='bilinear', align_corners=False)
                 pred_labels = pred_labels.argmax(dim=1)
 
                 if track.dim() == 4:
                     track = track.squeeze(1)
 
                 if track.shape != pred_labels.shape:
-                    track =F.interpolate(track.unsqueeze(1).float(), size=pred_labels.shape[-2:], mode='nearest').long()
+                    track =F.interpolate(track.unsqueeze(1).float(), size=tuple(pred_labels.shape[-2:]), mode='nearest').long()
 
 
                 # Resizing depth
-                target_size == track.shape[-2:]
+                target_size == tuple(track.shape[-2:])
 
                 if depth.ndim == 3:
                     depth = depth.unsqueeze(1)
