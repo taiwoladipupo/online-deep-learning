@@ -97,6 +97,11 @@ class CombinedLoss(nn.Module):
             class_weights = torch.tensor([0.001, 20.0, 10.00], dtype=torch.float32)
         else:
             class_weights = torch.tensor(class_weights, dtype=torch.float32)
+
+        # Ensure class_weights length matches num_classes
+        if len(class_weights) != 3:
+            raise ValueError(f"Length of class_weights ({len(class_weights)}) does not match number of classes ({3}).")
+
         self.ce_loss = nn.CrossEntropyLoss(weight=class_weights.to(device))
         self.depth_loss = nn.L1Loss()
 
