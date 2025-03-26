@@ -261,6 +261,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         for batch in train_data:
             img = torch.tensor(batch["image"]).to(device).float()
             img = batch["image"]
+            if not isinstance(img, torch.Tensor):
+                img = torch.from_numpy(img)
             if img.ndim == 3:
                 img = img.unsqueeze(0)
 
