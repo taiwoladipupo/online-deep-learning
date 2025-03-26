@@ -114,6 +114,12 @@ def train(
 
             assert pred_depth.shape == depth.shape
 
+            # Squeeze them back if necessary
+            if pred_depth.ndim == 4:
+                pred_depth = pred_depth.squeeze(1)
+            if depth.ndim == 4:
+                depth = depth.squeeze(1)
+
             # Squeeze them back
             pred_depth = pred_depth.squeeze(1)
             depth = depth.squeeze(1)
