@@ -1,5 +1,5 @@
 import torch
-
+import torch.nn.functional as F
 
 class AccuracyMetric:
     def __init__(self):
@@ -69,7 +69,7 @@ class DetectionMetric:
         print("Inside DetectionMetric.add:")
         print("depth_preds shape:", depth_preds.shape)
         print("depth_labels shape:", depth_labels.shape)
-        depth_error = (depth_preds - depth_labels).abs()
+
 
         # If the shapes don't match, resize depth_preds to match depth_labels
         if depth_preds.shape[1:] != depth_labels.shape[1:]:
@@ -81,6 +81,7 @@ class DetectionMetric:
             ).squeeze(1)
             print("After resizing, depth_preds shape:", depth_preds.shape)
 
+        depth_error = (depth_preds - depth_labels).abs()
         # only consider matches on road
         tp_mask = ((preds == labels) & (labels > 0)).float()
         tp_depth_error = depth_error * tp_mask
