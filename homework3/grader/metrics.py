@@ -70,16 +70,21 @@ class DetectionMetric:
         print("depth_preds shape:", depth_preds.shape)
         print("depth_labels shape:", depth_labels.shape)
 
+        # Ensure depth tensors are 4D: [B, 1, H, W]
+        if depth_preds.ndim == 3:
+            depth_preds = depth_preds.unsqueeze(1)
+        if depth_labels.ndim == 3:
+            depth_labels = depth_labels.unsqueeze(1)
 
-        # If the shapes don't match, resize depth_preds to match depth_labels
-        if depth_preds.shape[1:] != depth_labels.shape[1:]:
-            depth_preds = F.interpolate(
-                depth_preds.unsqueeze(1),
-                size=depth_labels.shape[1:],
-                mode='bilinear',
-                align_corners=False
-            ).squeeze(1)
-            print("After resizing, depth_preds shape:", depth_preds.shape)
+        # Force resize depth_preds to match depth_labels spatial dimensions.
+        target_size = tuple(int(x) for x in depth_labels.shape[-2:])  # e.g., (H, W) from depth_labels
+        depth_preds = F.interpolate(depth_preds, size=target_size, mode='bilinear', align_corners=False)
+        depth_labels = F.interpolate(depth_labels, size=target_size, mode='bilinear', align_corners=False)
+
+        # Squeeze back the channel dimension so that both are [B, H, W]
+        depth_preds = depth_preds.squeeze(1)
+        depth_labels = depth_labels.squeeze(1)
+        print("After resizing, depth_preds shape:", depth_preds.shape)
 
         depth_error = (depth_preds - depth_labels).abs()
         # only consider matches on road
