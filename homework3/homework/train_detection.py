@@ -72,13 +72,13 @@ def train(
 
             optimizer.zero_grad()
             pred, pred_depth = model(img)
-            pred_labels = pred.argmax(dim=1)
+            # pred_labels = pred.argmax(dim=1)
 
             # Resizing Pred
             if pred.shape[2:] != track.shape[1:]:
                 target_size = tuple(int(x) for x in track.shape[1:])
                 pred = F.interpolate(pred, size=target_size, mode='bilinear', align_corners=False)
-            pred_labels = pred_labels.argmax(dim=1)
+            pred_labels = pred.argmax(dim=1)
 
             if track.dim() == 4:
                 track = track.squeeze(1)
@@ -144,7 +144,7 @@ def train(
                 if pred.shape[2:] != track.shape[1:]:
                     target_size = tuple((int(x) for x in track.shape[1:]))
                     pred = F.interpolate(pred, size=target_size, mode='bilinear', align_corners=False)
-                pred_labels = pred_labels.argmax(dim=1)
+                pred_labels = pred.argmax(dim=1)
 
                 if track.dim() == 4:
                     track = track.squeeze(1)
