@@ -105,12 +105,7 @@ def train(
                                            size=target_size,
                                            mode='bilinear',
                                            align_corners=False)
-            pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
-            depth =F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
 
-            pred_depth = pred_depth.squeeze(1)
-            depth = depth.squeeze(1)
-            # print("After resizing dbth:pred_depth:", pred_depth.shape, "depth:", depth.shape)
 
             assert pred_depth.shape == depth.shape
 
@@ -120,9 +115,9 @@ def train(
             if depth.ndim == 4:
                 depth = depth.squeeze(1)
 
-            # Squeeze them back
-            pred_depth = pred_depth.squeeze(1)
-            depth = depth.squeeze(1)
+            # # Squeeze them back
+            # pred_depth = pred_depth.squeeze(1)
+            # depth = depth.squeeze(1)
 
 
             logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
@@ -184,14 +179,6 @@ def train(
                     pred_depth = pred_depth.unsqueeze(1)
                 target_size_depth = tuple(int(x) for x in depth.shape[-2:])
 
-                pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
-                depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
-
-                pred_depth = pred_depth.squeeze(1)
-                depth = depth.squeeze(1)
-                print("After resizing dbth:pred_depth:", pred_depth.shape, "depth:", depth.shape)
-                assert pred_depth.shape == depth.shape
-
                 # Check if spatial dimensions differ
                 if pred_depth.shape[-2:] != depth.shape[-2:]:
                     target_size = tuple(depth.shape[-2:])  # e.g., (H, W) from ground truth depth
@@ -200,6 +187,12 @@ def train(
                                                size=target_size,
                                                mode='bilinear',
                                                align_corners=False)
+                # Squeeze them back if necessary
+                if pred_depth.ndim == 4:
+                    pred_depth = pred_depth.squeeze(1)
+                if depth.ndim == 4:
+                    depth = depth.squeeze(1)
+                assert pred_depth.shape == depth.shape
 
                 # pred_labels = pred.argmax(dim=1)
                 validation_metrics.add(pred_labels, track, pred_depth, depth)
