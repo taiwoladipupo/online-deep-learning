@@ -205,7 +205,7 @@ def train(
                 assert pred_depth.shape == depth.shape
 
                 # pred_labels = pred.argmax(dim=1)
-                validation_metrics.add(pred_labels, track, pred_depth, depth)
+                validation_metrics.add(pred_labels, track, depth, pred_depth)
 
         # log accuracy to tensorboard
         computed_validation_metrics = validation_metrics.compute()
