@@ -223,15 +223,14 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     logger = tb.SummaryWriter(log_dir)
 
     # Use the custom transform for training if specified
-
-    train_dataset = load_data("drive_data/train", transform_pipeline="aug",
+    train_data= load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
-    train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
-    val_dataset = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
-    val_data = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+    val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
+
 
     model = load_model(model_name, **kwargs).to(device)
 
