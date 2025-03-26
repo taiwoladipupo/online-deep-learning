@@ -84,7 +84,7 @@ def train(
                    "track": track.shape,
                    "logits": logits.shape,})
 
-            training_metrics.add(pred_labels, track, depth)
+            training_metrics.add(pred_labels, track,pred_depth, depth)
 
             loss = alpha * ce_loss(pred, logits) + beta * mse_loss(pred_depth, depth)
             loss.backward()
