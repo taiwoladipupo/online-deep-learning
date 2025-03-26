@@ -84,10 +84,10 @@ def train(
 
             # logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
 
-            print({"img": img.shape,
-                   "depth": depth.shape,
-                   "track": track.shape,
-                   "target_indices": target_indices.shape,})
+            # print({"img": img.shape,
+            #        "depth": depth.shape,
+            #        "track": track.shape,
+            #        "target_indices": target_indices.shape,})
 
             # Ensure the tensors have compatible dimensions
             # Ensure the tensors have compatible dimensions
