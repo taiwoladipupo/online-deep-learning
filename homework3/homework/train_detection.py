@@ -167,7 +167,7 @@ def compute_sample_weights(dataset):
     return sample_weights
 # Main Training Loop
 def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
-          batch_size=64, seed=2024, transform_pipeline="default",oversample=False, **kwargs):
+          batch_size=64, seed=2024, transform_pipeline="default", oversample=False, **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -178,32 +178,11 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
 
-    # Debugging: Print track values for a few samples from the training dataset
-    print("Training dataset track values:")
-    # for i in range(5):
-    #     print(f"Sample {i} track value: {train_dataset[i]['track']}")
-
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
     train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
-    # print(f"Loaded {len(train_dataset)} training samples.")
-    # print(
-    #     f"Sample data shape: {train_dataset[0]['image'].shape}, {train_dataset[0]['track'].shape}, {train_dataset[0]['depth'].shape}")
-
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
-
-    # Debugging: Print track values for a few samples from the validation dataset
-    print("Validation dataset track values:")
-    # for i, sample in enumerate(val_data):
-    #     if i >= 5:
-    #         break
-    #     print(f"Sample {i} track value: {sample['track']}")
-    #
-    # print(f"Loaded {len(val_data)} validation samples.")
-    # print(
-    #     f"Sample data shape: {next(iter(val_data))['image'].shape}, {next(iter(val_data))['track'].shape}, {next(iter(val_data))['depth'].shape}")
-    #
 
     model = load_model(model_name, **kwargs).to(device)
 
@@ -236,20 +215,12 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             label = batch["track"].to(device).long()
             depth_true = batch["depth"].to(device)
 
-            # Check if label has an extra dimension that is redundant.
-            if label.ndim == 4:
-                # If all values along the last dimension are identical, keep only the first slice.
-                if torch.all(label[..., 0] == label[..., -1]):
-                    label = label[..., 0]
-                else:
-                    raise ValueError(
-                        f"Label has unexpected shape {label.shape} with varying values along the extra dimension.")
+            # Ensure the target tensor is correctly shaped
+            if label.ndim == 4 and label.shape[1] == 1:
+                label = label.squeeze(1)
 
             logits, depth_pred = model(img)
             normalized_logits = F.softmax(logits, dim=1)
-
-            if label.ndim == 4 and label.shape[1] == 1:
-                label = label.squeeze(1)
 
             temperature = 1.5
             scaled_logits = normalized_logits / temperature
@@ -280,14 +251,9 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
                 label = batch["track"].to(device).long()
                 depth_true = batch["depth"].to(device)
 
-                # Check if label has an extra dimension that is redundant.
-                if label.ndim == 4:
-                    # If all values along the last dimension are identical, keep only the first slice.
-                    if torch.all(label[..., 0] == label[..., -1]):
-                        label = label[..., 0]
-                    else:
-                        raise ValueError(
-                            f"Label has unexpected shape {label.shape} with varying values along the extra dimension.")
+                # Ensure the target tensor is correctly shaped
+                if label.ndim == 4 and label.shape[1] == 1:
+                    label = label.squeeze(1)
 
                 logits, depth_pred = model(img)
                 normalized_logits = F.softmax(logits, dim=1)
