@@ -200,7 +200,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
 
-    train_dataset = load_data("drive_data/train", transform_pipeline="aug",
+    train_transforms = get_train_transforms()
+    train_dataset = load_data("drive_data/train", transform_pipeline=train_transforms,
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
 
     sample_weights = compute_sample_weights(train_dataset)
@@ -211,7 +212,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    class_weights = torch.tensor([0.001, 2000.0, 10.0], dtype=torch.float32).to(device)
+    class_weights = torch.tensor([0.001, 50.0, 10.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
