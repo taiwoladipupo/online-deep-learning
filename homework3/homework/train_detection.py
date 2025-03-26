@@ -83,7 +83,7 @@ def train(
             if track.dim() == 4:
                 track = track.squeeze(1)
             if track.shape != pred_labels.shape:
-                track = F.interpolate(track.unsqueeze(1), pred_labels.unsqueeze(0), mode='nearest').squeeze(1).long()
+                track = F.interpolate(track.unsqueeze(1).float(), size=tuple(pred_labels.unsqueeze(0)), mode='nearest').squeeze(1).long()
             target_size = tuple(track.shape[-2:])
 
 
