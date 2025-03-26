@@ -100,6 +100,8 @@ def train(
             pred_depth = F.interpolate(pred_depth, size=target_size, mode='bilinear', align_corners=False)
             depth =F.interpolate(depth, size=target_size, mode='bilinear', align_corners=False)
 
+            assert pred_depth.shape == depth.shape
+
             # Squeeze them back
             pred_depth = pred_depth.squeeze(1)
             depth = depth.squeeze(1)
@@ -165,6 +167,8 @@ def train(
                     pred_depth = pred_depth.unsqueeze(1)
                 pred_depth = F.interpolate(pred_depth, size=target_size, mode='bilinear', align_corners=False)
                 depth = F.interpolate(depth, size=target_size, mode='bilinear', align_corners=False)
+
+                assert pred_depth.shape == depth.shape
 
                 # Squeeze them back
                 pred_depth = pred_depth.squeeze()
