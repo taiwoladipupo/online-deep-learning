@@ -7,7 +7,7 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset
 from . import road_transforms
 from .road_utils import Track
 from .road_transforms import RandomRotation
-
+from PIL import Image
 
 class RoadDataset(Dataset):
     """
@@ -43,29 +43,23 @@ class RoadDataset(Dataset):
                 road_transforms.DepthLoader(self.episode_path),
                 road_transforms.TrackProcessor(self.track),
                 # Apply spatial augmentations consistently to image, depth, and track:
-                road_transforms.RandomHorizontalFlip(prob=0.5, keys=["image", "depth", "track"]),
-                road_transforms.RandomRotation(
-                    degrees=15,
-                    keys=["image", "depth", "track"],
-                    interpolation={"image": "bilinear", "depth": "bilinear", "track": "nearest"}
-                ),
+                road_transforms.RandomHorizontalFlip(p=0.5),
+                road_transforms.RandomRotation(degrees=15),
                 # Apply color jitter only to the image (do not modify the mask)
                 road_transforms.ColorJitter(
-                    brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1,
-                    keys=["image"]
+                    brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
                 ),
                 # Resize the image and mask separately with appropriate interpolation:
                 road_transforms.Resize(
                     (96, 128),
-                    keys=["image"],
-                    interpolation={"image": "bilinear"}
+                    resample=Image.Resampling.BILINEAR
                 ),
                 road_transforms.Resize(
                     (96, 128),
-                    keys=["track"],
-                    interpolation={"track": "nearest"}
+                    resample=Image.Resampling.NEAREST
                 ),
             ])
+        return xform
         return xform
 
     def __len__(self):
