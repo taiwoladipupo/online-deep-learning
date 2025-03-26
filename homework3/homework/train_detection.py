@@ -72,7 +72,7 @@ def train(
 
             optimizer.zero_grad()
             pred, pred_depth = model(img)
-            # pred_labels = pred.argmax(dim=1)
+
 
             # Resizing Pred
             if pred.shape[2:] != track.shape[1:]:
@@ -95,11 +95,11 @@ def train(
                 depth = depth.unsqueeze(1)
             if pred_depth.ndim == 3:
                 pred_depth = pred_depth.unsqueeze(1)
-            target_size_depth = tuple(int(x) for x in depth.shape[-2:])
+
 
             # Check if spatial dimensions differ
             if pred_depth.shape[-2:] != depth.shape[-2:]:
-                target_size = tuple(depth.shape[-2:])  # e.g., (H, W) from ground truth depth
+                target_size = tuple(int(s) for x in depth.shape[-2:])  # e.g., (H, W) from ground truth depth
                 # Upsample pred_depth to match ground truth depth resolution.
                 pred_depth = F.interpolate(pred_depth,
                                            size=target_size,
@@ -107,13 +107,12 @@ def train(
                                            align_corners=False)
 
 
-            assert pred_depth.shape == depth.shape
-
             # Squeeze them back if necessary
             if pred_depth.ndim == 4:
                 pred_depth = pred_depth.squeeze(1)
             if depth.ndim == 4:
                 depth = depth.squeeze(1)
+            assert pred_depth.shape == depth.shape
 
             # # Squeeze them back
             # pred_depth = pred_depth.squeeze(1)
@@ -177,7 +176,7 @@ def train(
                     depth = depth.unsqueeze(1)
                 if pred_depth.ndim == 3:
                     pred_depth = pred_depth.unsqueeze(1)
-                target_size_depth = tuple(int(x) for x in depth.shape[-2:])
+
 
                 # Check if spatial dimensions differ
                 if pred_depth.shape[-2:] != depth.shape[-2:]:
