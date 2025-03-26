@@ -82,9 +82,9 @@ def train(
 
             if track.dim() == 4:
                 track = track.squeeze(1)
-
+            print("Before forced resize: pred_labels:", pred_labels.shape, "track", track.shape)
             if track.shape != pred_labels.shape:
-                print("Before resizing, track shape:", track.shape, "pred labels shape", pred_labels.shape)
+                #print("Before resizing, track shape:", track.shape, "pred labels shape", pred_labels.shape)
                 target_size =tuple(int(x) for x in pred_labels.shape[-2:])
                 track = F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').squeeze(1).long()
                 print("After resizing, track shape:", track.shape)
