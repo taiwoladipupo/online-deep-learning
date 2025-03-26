@@ -260,6 +260,10 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         epoch_train_losses = []
         for batch in train_data:
             img = torch.tensor(batch["image"]).to(device).float()
+            img = batch["image"]
+            if img.ndim == 3:
+                img = img.unsqueeze(0)
+
             label = torch.tensor(batch["track"]).to(device).long()
             depth_true = torch.tensor(batch["depth"]).to(device)
 
@@ -303,6 +307,10 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         with torch.no_grad():
             for batch in train_data:
                 img = torch.tensor(batch["image"]).to(device).float()
+                img = batch["image"]
+                if img.ndim == 3:
+                    img = img.unsqueeze(0)
+
                 label = torch.tensor(batch["track"]).to(device).long()
                 depth_true = torch.tensor(batch["depth"]).to(device)
                 if label.ndim == 4:
