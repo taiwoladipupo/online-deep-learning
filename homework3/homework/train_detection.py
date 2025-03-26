@@ -97,8 +97,9 @@ def train(
                 depth = depth.unsqueeze(1)
             if pred_depth.ndim == 3:
                 pred_depth = pred_depth.unsqueeze(1)
-            pred_depth = F.interpolate(pred_depth, size=target_size, mode='bilinear', align_corners=False)
-            depth =F.interpolate(depth, size=target_size, mode='bilinear', align_corners=False)
+            target_size_depth = tuple(int(x) for x in depth.shape[-2:])
+            pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
+            depth =F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
 
             assert pred_depth.shape == depth.shape
 
@@ -165,8 +166,9 @@ def train(
                     depth = depth.unsqueeze(1)
                 if pred_depth.ndim == 3:
                     pred_depth = pred_depth.unsqueeze(1)
-                pred_depth = F.interpolate(pred_depth, size=target_size, mode='bilinear', align_corners=False)
-                depth = F.interpolate(depth, size=target_size, mode='bilinear', align_corners=False)
+                target_size_depth = tuple(int(x) for x in depth.shape[-2:])
+                pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
+                depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
 
                 assert pred_depth.shape == depth.shape
 
