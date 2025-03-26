@@ -12,9 +12,9 @@ from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 from .metrics import DetectionMetric
 
-# Set fixed target resolutions (update these if needed)
-TARGET_SIZE_SEG = (48, 64)   # For segmentation (height, width)
-TARGET_SIZE_DEPTH = (48, 64) # For depth
+# Set fixed target sizes for segmentation and depth (adjust if needed)
+TARGET_SIZE_SEG = (48, 64)    # e.g. height=48, width=64 for segmentation labels
+TARGET_SIZE_DEPTH = (48, 64)  # e.g. height=48, width=64 for depth maps
 
 def train(
     exp_dir: str = "logs",
@@ -63,39 +63,46 @@ def train(
 
         model.train()
         for batch in train_data:
-            # Move tensors to device.
+            # Move batch tensors to device.
             batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v)
                      for k, v in batch.items()}
             img = batch["image"]
-            track = batch["track"]   # ground truth segmentation
-            depth = batch["depth"]   # ground truth depth
+            track = batch["track"]  # ground truth segmentation
+            depth = batch["depth"]  # ground truth depth
 
             optimizer.zero_grad()
-            pred, pred_depth = model(img)  # pred: [B, C, H_pred, W_pred]; pred_depth: [B, H_pred, W_pred] or [B, 1, H_pred, W_pred]
+            pred, pred_depth = model(img)
+            # pred: [B, C, H_pred, W_pred], pred_depth: [B, H_pred, W_pred] or [B, 1, H_pred, W_pred]
 
             # --- Segmentation Resizing ---
-            # Force both the model’s segmentation logits and the ground truth to the fixed target size.
-            pred = F.interpolate(pred, size=TARGET_SIZE_SEG, mode='bilinear', align_corners=False)
-            pred_labels = pred.argmax(dim=1)  # Now shape: [B, 48, 64]
+            # Force both predicted segmentation logits and ground truth segmentation to the fixed target.
+            if pred.shape[2:] != TARGET_SIZE_SEG:
+                pred = F.interpolate(pred, size=TARGET_SIZE_SEG, mode='bilinear', align_corners=False)
+            pred_labels = pred.argmax(dim=1)  # Now [B, 48, 64]
 
-            # Ensure ground truth segmentation has shape [B, 48, 64]
+            # Ensure track is [B, H, W]
             if track.ndim == 4:
                 track = track.squeeze(1)
-            track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE_SEG, mode='nearest').squeeze(1).long()
+            if track.shape[-2:] != TARGET_SIZE_SEG:
+                track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE_SEG, mode='nearest').squeeze(1).long()
             assert pred_labels.shape == track.shape, f"Segmentation shape mismatch: {pred_labels.shape} vs {track.shape}"
 
             # --- Depth Resizing ---
-            # Force predicted depth and ground truth depth to the fixed target depth resolution.
+            # Force both predicted depth and ground truth depth to the fixed target.
             if depth.ndim == 3:
                 depth = depth.unsqueeze(1)
             if pred_depth.ndim == 3:
                 pred_depth = pred_depth.unsqueeze(1)
-            pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
-            depth = F.interpolate(depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
+            if pred_depth.shape[-2:] != TARGET_SIZE_DEPTH:
+                pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
+            if depth.shape[-2:] != TARGET_SIZE_DEPTH:
+                depth = F.interpolate(depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
             pred_depth = pred_depth.squeeze(1)
             depth = depth.squeeze(1)
             assert pred_depth.shape == depth.shape, f"Depth shape mismatch: {pred_depth.shape} vs {depth.shape}"
 
+            # --- Update Metrics ---
+            # Optionally, clone track for metrics if needed.
             training_metrics.add(pred_labels, track, pred_depth, depth)
 
             loss = alpha * ce_loss(pred, track) + beta * mse_loss(pred_depth, depth)
@@ -113,19 +120,23 @@ def train(
                 depth = batch["depth"]
 
                 pred, pred_depth = model(img)
-                pred = F.interpolate(pred, size=TARGET_SIZE_SEG, mode='bilinear', align_corners=False)
+                if pred.shape[2:] != TARGET_SIZE_SEG:
+                    pred = F.interpolate(pred, size=TARGET_SIZE_SEG, mode='bilinear', align_corners=False)
                 pred_labels = pred.argmax(dim=1)
                 if track.ndim == 4:
                     track = track.squeeze(1)
-                track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE_SEG, mode='nearest').squeeze(1).long()
+                if track.shape[-2:] != TARGET_SIZE_SEG:
+                    track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE_SEG, mode='nearest').squeeze(1).long()
                 assert pred_labels.shape == track.shape, f"Validation segmentation mismatch: {pred_labels.shape} vs {track.shape}"
 
                 if depth.ndim == 3:
                     depth = depth.unsqueeze(1)
                 if pred_depth.ndim == 3:
                     pred_depth = pred_depth.unsqueeze(1)
-                pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
-                depth = F.interpolate(depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
+                if pred_depth.shape[-2:] != TARGET_SIZE_DEPTH:
+                    pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
+                if depth.shape[-2:] != TARGET_SIZE_DEPTH:
+                    depth = F.interpolate(depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
                 pred_depth = pred_depth.squeeze(1)
                 depth = depth.squeeze(1)
                 assert pred_depth.shape == depth.shape, f"Validation depth mismatch: {pred_depth.shape} vs {depth.shape}"
