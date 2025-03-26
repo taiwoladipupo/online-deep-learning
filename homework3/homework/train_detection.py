@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from pathlib import Path
@@ -175,6 +176,31 @@ def get_val_transforms():
                     std=[0.229, 0.224, 0.225])
     ])
 
+def visualize_augmentations(dataset, transform_pipeline, num_samples=5):
+    fig, axes = plt.subplots(num_samples, 3, figsize=(15, num_samples * 5))
+    for i in range(num_samples):
+        sample = dataset[i]
+        augmented_sample = transform_pipeline(sample)
+
+        image = augmented_sample['image'].transpose(1, 2, 0)  # Convert to HWC format
+        depth = augmented_sample['depth']
+        track = augmented_sample['track']
+
+        axes[i, 0].imshow(image)
+        axes[i, 0].set_title('Augmented Image')
+        axes[i, 0].axis('off')
+
+        axes[i, 1].imshow(depth, cmap='gray')
+        axes[i, 1].set_title('Augmented Depth')
+        axes[i, 1].axis('off')
+
+        axes[i, 2].imshow(track, cmap='gray')
+        axes[i, 2].set_title('Augmented Track')
+        axes[i, 2].axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
 # Sample Weights
 
 def compute_sample_weights(dataset):
@@ -216,7 +242,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     logger = tb.SummaryWriter(log_dir)
 
 
-    train_dataset = load_data("drive_data/train", transform_pipeline="aug",
+    train_dataset = load_data("drive_data/train", transform_pipeline="default",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
 
     sample_weights = compute_sample_weights(train_dataset)
@@ -227,7 +253,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    class_weights = torch.tensor([1.0, 30.0, 10.0], dtype=torch.float32).to(device)
+    class_weights = torch.tensor([1.0, 50.0, 10.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
