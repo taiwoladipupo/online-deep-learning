@@ -51,8 +51,6 @@ class DetectionMetric:
         self.tp_depth_error_n = 0
 
     @torch.no_grad()
-
-
     def add(self, preds: torch.Tensor, labels: torch.Tensor, depth_preds: torch.Tensor, depth_labels: torch.Tensor):
         """
         Args:
@@ -61,20 +59,20 @@ class DetectionMetric:
             depth_preds (torch.FloatTensor): (b, h, w) with depth predictions.
             depth_labels (torch.FloatTensor): (b, h, w) with ground truth depth.
         """
-        # Ensure depth tensors are 4D: [N, C, H, W]
+
+        # Ensure depth tensors are 4D: [N, C, H, W]. If 3D, add a channel dimension.
         if depth_preds.ndim == 3:
             depth_preds = depth_preds.unsqueeze(1)
         if depth_labels.ndim == 3:
             depth_labels = depth_labels.unsqueeze(1)
 
-        # Resize depth tensors to a common target size (using the minimum spatial size)
-        target_height = min(depth_preds.shape[2], depth_labels.shape[2])
-        target_width = min(depth_preds.shape[3], depth_labels.shape[3])
-        target_size = (target_height, target_width)
+        # Use the spatial size of depth_labels as the target size.
+        target_size = depth_labels.shape[-2:]  # (H, W) of depth_labels
+
         depth_preds = F.interpolate(depth_preds, size=target_size, mode='bilinear', align_corners=False)
         depth_labels = F.interpolate(depth_labels, size=target_size, mode='bilinear', align_corners=False)
 
-        # Squeeze to get back to [N, H, W]
+        # Squeeze the channel dimension to get back to [N, H, W]
         depth_preds = depth_preds.squeeze(1)
         depth_labels = depth_labels.squeeze(1)
 
@@ -84,12 +82,6 @@ class DetectionMetric:
 
         # Compute absolute depth error.
         depth_error = (depth_preds - depth_labels).abs()
-
-        # If depth_error's spatial dimensions don't match those of the segmentation labels,
-        # upsample depth_error to match labels' resolution.
-        if depth_error.shape != labels.shape:
-            depth_error = F.interpolate(depth_error.unsqueeze(1), size=labels.shape[-2:], mode='bilinear',
-                                        align_corners=False).squeeze(1)
 
         # Create a mask for true positives on road (assumed labels > 0).
         tp_mask = ((preds == labels) & (labels > 0)).float()
