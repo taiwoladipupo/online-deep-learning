@@ -51,7 +51,6 @@ class DetectionMetric:
         self.tp_depth_error_n = 0
 
     @torch.no_grad()
-
     def add(
         self,
         preds: torch.Tensor,
@@ -66,11 +65,6 @@ class DetectionMetric:
             depth_preds (torch.FloatTensor): (b, h, w) with depth predictions
             depth_labels (torch.FloatTensor): (b, h, w) with ground truth depth
         """
-        # Ensure depth_preds and depth_labels have the same spatial dimensions
-        if depth_preds.shape[2:] != depth_labels.shape[2:]:
-            depth_preds = F.interpolate(depth_preds.unsqueeze(1), size=depth_labels.shape[2:], mode='bilinear',
-                                        align_corners=False).squeeze(1)
-
         depth_error = (depth_preds - depth_labels).abs()
 
         # only consider matches on road
@@ -82,6 +76,7 @@ class DetectionMetric:
 
         self.tp_depth_error_sum += tp_depth_error.sum().item()
         self.tp_depth_error_n += tp_mask.sum().item()
+
     def compute(self) -> dict[str, float]:
         """
         Returns:
@@ -133,13 +128,6 @@ class ConfusionMatrix:
             preds = preds.view(-1)
             labels = labels.view(-1)
 
-        try:
-            num_classes = len(self.class_range)
-        except:
-            num_classes = 3
-
-        # preds_one_hot = F.one_hot(preds, num_classes).float()
-        # labels_one_hot = F.one_hot(labels, num_classes).float()
         preds_one_hot = (preds.type_as(labels).cpu()[:, None] == self.class_range[None]).int()
         labels_one_hot = (labels.cpu()[:, None] == self.class_range[None]).int()
         update = labels_one_hot.T @ preds_one_hot

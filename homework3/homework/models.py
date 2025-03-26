@@ -196,6 +196,10 @@ class Detector(nn.Module):
          - Depth: (B, H, W)
         """
         super(Detector, self).__init__()
+
+        self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
+        self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
+
         # Encoder using Residual Downsampling Blocks
         self.down1 = ResidualDownBlock(3, 16)  # (B, 3, H, W) -> (B, 16, H/2, W/2)
         self.down2 = ResidualDownBlock(16, 32)  # -> (B, 32, H/4, W/4)
@@ -254,25 +258,7 @@ class Detector(nn.Module):
         pred = logits.argmax(dim=1)
         depth = raw_depth  # Already scaled by Sigmoid
         return pred, depth
-    # def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    #     """
-    #     Used for inference, takes an image and returns class labels and normalized depth.
-    #
-    #     Args:
-    #         x (torch.FloatTensor): image with shape (B, 3, h, w) and values in [0, 1]
-    #
-    #     Returns:
-    #         tuple:
-    #           - pred: class labels {0, 1, 2} with shape (B, h, w)
-    #           - depth: normalized depth [0, 1] with shape (B, h, w)
-    #     """
-    #     logits, raw_depth = self(x)
-    #     # Print shapes for debugging
-    #     # print("Logits shape:", logits.shape, "Raw depth shape:", raw_depth.shape)
-    #     pred = logits.argmax(dim=1)
-    #     # Optionally, post-process depth if needed; here raw_depth is already scaled via Sigmoid.
-    #     depth = raw_depth
-    #     return pred, depth
+
 
 MODEL_FACTORY = {
     "classifier": Classifier,
