@@ -65,11 +65,17 @@ class DetectionMetric:
             depth_preds (torch.FloatTensor): (b, h, w) with depth predictions
             depth_labels (torch.FloatTensor): (b, h, w) with ground truth depth
         """
+
         if depth_preds.shape[-2:] != depth_labels.shape[-2:]:
             depth_preds = F.interpolate(depth_preds.unsqueeze(1),
                                         size=depth_labels.shape[-2:],
                                         mode='bilinear',
                                         align_corners=False).squeeze(1)
+        if preds.shape[1:] != labels.shape[1:]:
+            preds = F.interpolate(preds.unsqueeze(1).float(),
+                                  size=labels.shape[1:],
+                                  mode='nearest').squeeze(1).long()
+
         depth_error = (depth_preds - depth_labels).abs()
 
         # only consider matches on road
