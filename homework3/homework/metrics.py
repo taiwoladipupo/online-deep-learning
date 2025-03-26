@@ -52,6 +52,7 @@ class DetectionMetric:
 
     @torch.no_grad()
 
+
     def add(self, preds: torch.Tensor, labels: torch.Tensor, depth_preds: torch.Tensor, depth_labels: torch.Tensor):
         """
         Args:
@@ -66,15 +67,14 @@ class DetectionMetric:
         if depth_labels.ndim == 3:
             depth_labels = depth_labels.unsqueeze(1)
 
-        # Resize both depth_preds and depth_labels to a common target size
+        # Resize depth tensors to a common target size (using the minimum spatial size)
         target_height = min(depth_preds.shape[2], depth_labels.shape[2])
         target_width = min(depth_preds.shape[3], depth_labels.shape[3])
         target_size = (target_height, target_width)
-
         depth_preds = F.interpolate(depth_preds, size=target_size, mode='bilinear', align_corners=False)
         depth_labels = F.interpolate(depth_labels, size=target_size, mode='bilinear', align_corners=False)
 
-        # Squeeze the channel dimension to get back to [N, H, W]
+        # Squeeze to get back to [N, H, W]
         depth_preds = depth_preds.squeeze(1)
         depth_labels = depth_labels.squeeze(1)
 
@@ -85,13 +85,21 @@ class DetectionMetric:
         # Compute absolute depth error.
         depth_error = (depth_preds - depth_labels).abs()
 
+        # If depth_error's spatial dimensions don't match those of the segmentation labels,
+        # upsample depth_error to match labels' resolution.
+        if depth_error.shape != labels.shape:
+            depth_error = F.interpolate(depth_error.unsqueeze(1), size=labels.shape[-2:], mode='bilinear',
+                                        align_corners=False).squeeze(1)
+
         # Create a mask for true positives on road (assumed labels > 0).
         tp_mask = ((preds == labels) & (labels > 0)).float()
         tp_depth_error = depth_error * tp_mask
 
-        # Update the confusion matrix and accumulate metrics.
+        # Update the confusion matrix with class predictions and labels.
         self.confusion_matrix.add(preds, labels)
+        # Append the average depth error for this batch.
         self.avg_depth_errors.append(depth_error.mean().item())
+        # Sum the depth error on true positives and count the number of true positive pixels.
         self.tp_depth_error_sum += tp_depth_error.sum().item()
         self.tp_depth_error_n += tp_mask.sum().item()
 
