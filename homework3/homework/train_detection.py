@@ -16,7 +16,7 @@ from .datasets.road_dataset import load_data
 
 # Loss Functions
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=0.7, gamma=2.0, logits=True, reduction='mean'):
+    def __init__(self, alpha=0.7, gamma=1.5, logits=True, reduction='mean'):
         super(FocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
@@ -227,7 +227,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     model = load_model(model_name, **kwargs).to(device)
 
-    class_weights = torch.tensor([0.001, 50.0, 10.0], dtype=torch.float32).to(device)
+    class_weights = torch.tensor([0.01, 30.0, 10.0], dtype=torch.float32).to(device)
     print("Calculated class weights:", class_weights)
 
     loss_func = CombinedLoss(
