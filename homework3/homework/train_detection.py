@@ -77,7 +77,7 @@ def train(
             if track.dim() == 4:
                 track = track.squeeze(1)  # Remove the extra dimension if necessary
 
-            logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 2, 1).float()
+            logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
 
             print({"img": img.shape,
                    "depth": depth.shape,
