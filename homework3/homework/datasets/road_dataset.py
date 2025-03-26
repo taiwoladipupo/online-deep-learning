@@ -30,6 +30,7 @@ class RoadDataset(Dataset):
         self.transform = self.get_transform(transform_pipeline)
 
     def get_transform(self, transform_pipeline: str):
+        xform = None
         if transform_pipeline == "default":
             xform = road_transforms.Compose([
                 road_transforms.ImageLoader(self.episode_path),
