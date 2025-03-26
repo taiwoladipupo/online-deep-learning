@@ -16,48 +16,6 @@ from .metrics import ConfusionMatrix
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 
-#
-# #############################################
-# # Custom Augmentation for "aug" pipeline
-# #############################################
-# class CustomAugTransform:
-#     def __init__(self, size=(96, 128)):
-#         self.size = size
-#         self.image_transforms = T.Compose([
-#             T.Resize(self.size, interpolation=Image.BILINEAR),
-#             T.RandomHorizontalFlip(),
-#             T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-#             T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
-#             T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
-#             T.ToTensor(),
-#             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-#         ])
-#         self.depth_transforms = T.Compose([
-#             T.Resize(self.size, interpolation=Image.BILINEAR),
-#             T.RandomHorizontalFlip(),
-#             T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
-#             T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.BILINEAR),
-#             T.ToTensor()
-#         ])
-#         # For segmentation masks, use nearest-neighbor interpolation and no color jitter/normalize.
-#         self.mask_transforms = T.Compose([
-#             T.Resize(self.size, interpolation=Image.NEAREST),
-#             T.RandomHorizontalFlip(),
-#             T.RandomRotation(degrees=15, interpolation=Image.NEAREST),
-#             T.RandomResizedCrop(self.size, scale=(0.8, 1.0), interpolation=Image.NEAREST),
-#             T.ToTensor()
-#             # This produces a tensor with values in [0,1]; ensure your dataset loader handles labels appropriately.
-#         ])
-#
-#     def __call__(self, sample):
-#         # Expecting sample to be a dictionary with keys "image", "depth", "track"
-#         image = self.image_transforms(sample['image'])
-#         depth = self.depth_transforms(sample['depth'])
-#         track = self.mask_transforms(sample['track'])
-#         # If necessary, convert track tensor to integer type.
-#         track = track.squeeze(0).long()  # Assuming mask was single channel.
-#         return {'image': image, 'depth': depth, 'track': track}
-
 
 #############################################
 # Loss Functions
@@ -234,28 +192,6 @@ def get_val_transforms():
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-#
-# def visualize_augmentations(dataset, transform_pipeline, num_samples=5):
-#     # Get the transformation. If using custom augmentation, it returns a callable that expects a sample dict.
-#     transform = get_transform(transform_pipeline)
-#     fig, axes = plt.subplots(num_samples, 3, figsize=(15, num_samples * 5))
-#     for i in range(num_samples):
-#         sample = dataset[i]
-#         augmented_sample = transform(sample)
-#         image = augmented_sample['image'].transpose(0, 1).transpose(1, 2)  # Convert CHW to HWC
-#         depth = augmented_sample['depth'].squeeze(0)  # Assuming single-channel depth
-#         track = augmented_sample['track']  # Already converted to tensor of labels
-#         axes[i, 0].imshow(image)
-#         axes[i, 0].set_title('Augmented Image')
-#         axes[i, 0].axis('off')
-#         axes[i, 1].imshow(depth, cmap='gray')
-#         axes[i, 1].set_title('Augmented Depth')
-#         axes[i, 1].axis('off')
-#         axes[i, 2].imshow(track, cmap='gray')
-#         axes[i, 2].set_title('Augmented Track')
-#         axes[i, 2].axis('off')
-#     plt.tight_layout()
-#     plt.show()
 
 
 #############################################
@@ -287,14 +223,14 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     logger = tb.SummaryWriter(log_dir)
 
     # Use the custom transform for training if specified
-    # train_transform = get_transform(transform_pipeline)
+
     train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
     train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
-    val_dataset = load_data("drive_data/val", transform_pipeline=get_val_transforms(), shuffle=False)
+    val_dataset = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
     val_data = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     model = load_model(model_name, **kwargs).to(device)
