@@ -75,17 +75,17 @@ def train(
             pred, pred_depth = model(img)
             pred_labels = pred.argmax(dim=1)
 
+            # Resizing Pred
             if pred.shape[2:] != track.shape[1:]:
                 pred = F.interpolate(pred, size=track.shape[1:], mode='bilinear', align_corners=False)
             pred_labels = pred_labels.argmax(dim=1)
 
             if track.dim() == 4:
-                track = track.squeeze(1)  # Remove the extra dimension if necessary
-            target_indices = track.squeeze(1)
-
-            if track.ndim == 4:
                 track = track.squeeze(1)
+            if track.shape != pred_labels.shape:
+                track = F.interpolate(track.unsqueeze(1), pred_labels.unsqueeze(0), mode='nearest').squeeze(1).long()
             target_size = track.shape[-2:]
+
 
             if depth.ndim == 3:
                 depth = depth.unsqueeze(1)
@@ -95,8 +95,8 @@ def train(
             depth =F.interpolate(depth, size=target_size, mode='bilinear', align_corners=False)
 
             # Squeeze them back
-            pred_depth = pred_depth.squeeze()
-            depth = depth.squeeze()
+            pred_depth = pred_depth.squeeze(1)
+            depth = depth.squeeze(1)
 
 
             # logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
@@ -118,7 +118,7 @@ def train(
             #                                align_corners=False)
             training_metrics.add(pred_labels, track,pred_depth, depth)
 
-            loss = alpha * ce_loss(pred, target_indices) + beta * mse_loss(pred_depth, depth)
+            loss = alpha * ce_loss(pred, track) + beta * mse_loss(pred_depth, depth)
             loss.backward()
             optimizer.step()
 
@@ -140,9 +140,14 @@ def train(
                 pred_labels = pred_labels.argmax(dim=1)
 
                 if track.dim() == 4:
-                    track = track.squeeze(1)  # Remove the extra dimension if necessary
-                target_size = track.squeeze(1)
+                    track = track.squeeze(1)
 
+                if track.shape != pred_labels.shape:
+                    track =F.interpolate(track.unsqueeze(1).float(), size=pred_labels.shape[-2:], mode='nearest').long()
+
+
+                # Resizing depth
+                target_size == track.shape[-2:]
 
                 if depth.ndim == 3:
                     depth = depth.unsqueeze(1)
