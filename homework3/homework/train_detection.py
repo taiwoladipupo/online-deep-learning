@@ -223,14 +223,16 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     logger = tb.SummaryWriter(log_dir)
 
     # Use the custom transform for training if specified
-    train_data= load_data("drive_data/train", transform_pipeline="aug",
+    train_transform = get_transform(transform_pipeline)
+    train_dataset = load_data("drive_data/train", transform_pipeline=train_transform,
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
-    sample_weights = compute_sample_weights(train_data)
-    sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_data), replacement=True)
+    sample_weights = compute_sample_weights(train_dataset)
+    sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
+    train_data = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=2)
 
-
-    val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
-
+    val_transform = get_transform("default")
+    val_dataset = load_data("drive_data/val", transform_pipeline=val_transform, shuffle=False)
+    val_data = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     model = load_model(model_name, **kwargs).to(device)
 
@@ -259,30 +261,29 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         model.train()
         epoch_train_losses = []
         for batch in train_data:
-            img = torch.tensor(batch["image"]).to(device).float()  # Ensure the input tensor is of type float
-            # Ensure the input tensor has 4 dimensions
-            if img.ndim == 3:
-                img = img.unsqueeze(0)  # Add batch dimension
+            img = batch["image"].to(device).float()
+            label = batch["track"].to(device).long()
+            depth_true = batch["depth"].to(device)
 
-            # Ensure the label tensor has 4 dimensions
-            if label.ndim == 3:
-                label = label.unsqueeze(0)  # Add batch dimension
-
-            # Ensure the depth_true tensor has 4 dimensions
-            if depth_true.ndim == 3:
-                depth_true = depth_true.unsqueeze(0)  # Add batch dimension
+            # Ensure label is in [N, H, W]
+            if label.ndim == 4:
+                redundant = True
+                for i in range(1, label.shape[-1]):
+                    if not torch.equal(label[..., 0], label[..., i]):
+                        redundant = False
+                        break
+                if redundant:
+                    label = label[..., 0]
+                else:
+                    raise ValueError(f"Label has unexpected shape {label.shape}.")
 
             # Get raw logits from the model
             logits, depth_pred = model(img)
-
             # Apply temperature scaling to raw logits (do not apply softmax)
             temperature = 1.5
             scaled_logits = logits / temperature
-
-            # Ensure the output size has the same number of dimensions as the input tensor
             if scaled_logits.shape[2:] != label.shape[1:]:
                 scaled_logits = F.interpolate(scaled_logits, size=label.shape[1:], mode='bilinear', align_corners=False)
-
             if depth_pred.shape[-2:] != depth_true.shape[-2:]:
                 depth_pred = F.interpolate(depth_pred.unsqueeze(1), size=depth_true.shape[-2:], mode='bilinear',
                                            align_corners=False).squeeze(1)
@@ -292,6 +293,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
+
             epoch_train_losses.append(loss.item())
             logger.add_scalar("train/total_loss", loss.item(), global_step)
             global_step += 1
@@ -302,18 +304,19 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         confusion_matrix = ConfusionMatrix(num_classes=3)
         with torch.no_grad():
             for batch in val_data:
-                img = torch.tensor(batch["image"]).to(device).float()
-                img = batch["image"]
-                if img.ndim == 3:
-                    img = img.unsqueeze(0)  # Add batch dimension
-
-                # Ensure the label tensor has 4 dimensions
-                if label.ndim == 3:
-                    label = label.unsqueeze(0)  # Add batch dimension
-
-                # Ensure the depth_true tensor has 4 dimensions
-                if depth_true.ndim == 3:
-                    depth_true = depth_true.unsqueeze(0)  # Add batch dimension
+                img = batch["image"].to(device).float()
+                label = batch["track"].to(device).long()
+                depth_true = batch["depth"].to(device)
+                if label.ndim == 4:
+                    redundant = True
+                    for i in range(1, label.shape[-1]):
+                        if not torch.equal(label[..., 0], label[..., i]):
+                            redundant = False
+                            break
+                    if redundant:
+                        label = label[..., 0]
+                    else:
+                        raise ValueError(f"Label has unexpected shape {label.shape}.")
 
                 logits, depth_pred = model(img)
                 scaled_logits = logits / temperature
@@ -361,7 +364,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     save_model(model)
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
-
 
 if __name__ == "__main__":
     import argparse
