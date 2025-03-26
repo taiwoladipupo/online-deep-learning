@@ -90,12 +90,17 @@ def train(
                 #print("After resizing, track shape:", track.shape)
             assert pred_labels.shape == track.shape
 
+            if depth.ndim == 3 or pred_depth.ndim == 3 or (pred_depth.shape[-2:] != depth.shape[-2:]):
+                pred_depth, depth = debug_resize(pred_depth, depth)
+            assert pred_depth.shape == depth.shape, f"Shape mismatch: pred_depth {pred_depth.shape} vs depth {depth.shape}"
 
-            if depth.ndim == 3:
-                depth = depth.unsqueeze(1)
-            if pred_depth.ndim == 3:
-                pred_depth = pred_depth.unsqueeze(1)
+            # if depth.ndim == 3:
+            #     depth = depth.unsqueeze(1)
+            # if pred_depth.ndim == 3:
+            #     pred_depth = pred_depth.unsqueeze(1)
 
+            print("After unsqueeze pred_depth shape:", pred_depth.shape)
+            print("After unsqueeze depth shape:", depth.shape)
 
             # Check if spatial dimensions differ
             if pred_depth.shape[-2:] != depth.shape[-2:]:
@@ -175,10 +180,14 @@ def train(
                 assert pred_labels.shape == track.shape
                 # Resizing depth
 
-                if depth.ndim == 3:
-                    depth = depth.unsqueeze(1)
-                if pred_depth.ndim == 3:
-                    pred_depth = pred_depth.unsqueeze(1)
+                if depth.ndim == 3 or pred_depth.ndim == 3 or (pred_depth.shape[-2:] != depth.shape[-2:]):
+                    pred_depth, depth = debug_resize(pred_depth, depth)
+                assert pred_depth.shape == depth.shape, f"Shape mismatch: pred_depth {pred_depth.shape} vs depth {depth.shape}"
+
+                # if depth.ndim == 3:
+                #     depth = depth.unsqueeze(1)
+                # if pred_depth.ndim == 3:
+                #     pred_depth = pred_depth.unsqueeze(1)
 
 
                 # Check if spatial dimensions differ
@@ -232,6 +241,36 @@ def train(
     # save a copy of model weights in the log directory
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
+
+
+
+# Debug helper: log shapes before and after each operation.
+def debug_resize(pred_depth, depth):
+    print("Initial pred_depth shape:", pred_depth.shape)
+    print("Initial depth shape:", depth.shape)
+
+    if depth.ndim == 3:
+        depth = depth.unsqueeze(1)
+    if pred_depth.ndim == 3:
+        pred_depth = pred_depth.unsqueeze(1)
+
+    print("After unsqueeze pred_depth shape:", pred_depth.shape)
+    print("After unsqueeze depth shape:", depth.shape)
+
+    if pred_depth.shape[-2:] != depth.shape[-2:]:
+        target_size = tuple(int(x) for x in depth.shape[-2:])
+        pred_depth = F.interpolate(pred_depth, size=target_size, mode='bilinear', align_corners=False)
+        print("After interpolation pred_depth shape:", pred_depth.shape)
+
+    if pred_depth.ndim == 4:
+        pred_depth = pred_depth.squeeze(1)
+    if depth.ndim == 4:
+        depth = depth.squeeze(1)
+    print("After squeeze pred_depth shape:", pred_depth.shape)
+    print("After squeeze depth shape:", depth.shape)
+    return pred_depth, depth
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
