@@ -14,7 +14,7 @@ from .metrics import DetectionMetric
 
 def train(
         exp_dir: str = "logs",
-        model_name: str = "Detection",
+        model_name: str = "Detector",
         num_epoch: int = 50,
         lr: float = 1e-3,
         batch_size: int = 128,
