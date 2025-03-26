@@ -261,8 +261,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         total_epochs=num_epoch,
         seg_loss_weight=1.0,
         depth_loss_weight=0.0,
-        ce_weight=0.9,
-        dice_weight=0.3,
+        ce_weight=0.5,
+        dice_weight=0.5,
         class_weights=class_weights
     )
 
