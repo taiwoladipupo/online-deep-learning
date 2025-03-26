@@ -99,7 +99,7 @@ def train(
 
             # Check if spatial dimensions differ
             if pred_depth.shape[-2:] != depth.shape[-2:]:
-                target_size = tuple(int(s) for x in depth.shape[-2:])  # e.g., (H, W) from ground truth depth
+                target_size = tuple(int(x) for x in depth.shape[-2:])  # e.g., (H, W) from ground truth depth
                 # Upsample pred_depth to match ground truth depth resolution.
                 pred_depth = F.interpolate(pred_depth,
                                            size=target_size,
