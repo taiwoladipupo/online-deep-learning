@@ -225,8 +225,8 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
     # Use the custom transform for training if specified
     train_data= load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
-    sample_weights = compute_sample_weights(train_dataset)
-    sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
+    sample_weights = compute_sample_weights(train_data)
+    sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_data), replacement=True)
 
 
     val_data = load_data("drive_data/val", transform_pipeline="default", shuffle=False)
