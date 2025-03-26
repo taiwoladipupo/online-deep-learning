@@ -225,33 +225,6 @@ class CombinedLoss(nn.Module):
         return self.seg_loss_weight * seg_loss_val + self.depth_loss_weight * depth_loss_val
 
 
-#############################################
-# Data Augmentation Transforms
-#############################################
-def get_transform(transform_pipeline):
-    if isinstance(transform_pipeline, T.Compose):
-        return transform_pipeline
-
-    if transform_pipeline == "default":
-        xform = T.Compose([
-            T.Resize((96, 128), interpolation=Image.BILINEAR),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-    elif transform_pipeline == "aug":
-        xform = T.Compose([
-            T.Resize((96, 128), interpolation=Image.BILINEAR),
-            T.RandomHorizontalFlip(),
-            T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-            T.RandomRotation(degrees=15, interpolation=Image.BILINEAR),
-            T.RandomResizedCrop((96, 128), scale=(0.8, 1.0), interpolation=Image.BILINEAR),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-    else:
-        raise ValueError(f"Invalid transform {transform_pipeline} specified!")
-
-    return xform
 
 
 def get_val_transforms():
@@ -261,28 +234,28 @@ def get_val_transforms():
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-
-def visualize_augmentations(dataset, transform_pipeline, num_samples=5):
-    # Get the transformation. If using custom augmentation, it returns a callable that expects a sample dict.
-    transform = get_transform(transform_pipeline)
-    fig, axes = plt.subplots(num_samples, 3, figsize=(15, num_samples * 5))
-    for i in range(num_samples):
-        sample = dataset[i]
-        augmented_sample = transform(sample)
-        image = augmented_sample['image'].transpose(0, 1).transpose(1, 2)  # Convert CHW to HWC
-        depth = augmented_sample['depth'].squeeze(0)  # Assuming single-channel depth
-        track = augmented_sample['track']  # Already converted to tensor of labels
-        axes[i, 0].imshow(image)
-        axes[i, 0].set_title('Augmented Image')
-        axes[i, 0].axis('off')
-        axes[i, 1].imshow(depth, cmap='gray')
-        axes[i, 1].set_title('Augmented Depth')
-        axes[i, 1].axis('off')
-        axes[i, 2].imshow(track, cmap='gray')
-        axes[i, 2].set_title('Augmented Track')
-        axes[i, 2].axis('off')
-    plt.tight_layout()
-    plt.show()
+#
+# def visualize_augmentations(dataset, transform_pipeline, num_samples=5):
+#     # Get the transformation. If using custom augmentation, it returns a callable that expects a sample dict.
+#     transform = get_transform(transform_pipeline)
+#     fig, axes = plt.subplots(num_samples, 3, figsize=(15, num_samples * 5))
+#     for i in range(num_samples):
+#         sample = dataset[i]
+#         augmented_sample = transform(sample)
+#         image = augmented_sample['image'].transpose(0, 1).transpose(1, 2)  # Convert CHW to HWC
+#         depth = augmented_sample['depth'].squeeze(0)  # Assuming single-channel depth
+#         track = augmented_sample['track']  # Already converted to tensor of labels
+#         axes[i, 0].imshow(image)
+#         axes[i, 0].set_title('Augmented Image')
+#         axes[i, 0].axis('off')
+#         axes[i, 1].imshow(depth, cmap='gray')
+#         axes[i, 1].set_title('Augmented Depth')
+#         axes[i, 1].axis('off')
+#         axes[i, 2].imshow(track, cmap='gray')
+#         axes[i, 2].set_title('Augmented Track')
+#         axes[i, 2].axis('off')
+#     plt.tight_layout()
+#     plt.show()
 
 
 #############################################
@@ -315,7 +288,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
 
     # Use the custom transform for training if specified
     train_transform = get_transform(transform_pipeline)
-    train_dataset = load_data("drive_data/train", transform_pipeline=train_transform,
+    train_dataset = load_data("drive_data/train", transform_pipeline="aug",
                               return_dataloader=False, shuffle=False, batch_size=1, num_workers=2)
     sample_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_dataset), replacement=True)
