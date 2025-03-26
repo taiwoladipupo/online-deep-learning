@@ -216,9 +216,19 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             depth_true = batch["depth"].to(device)
 
             # Ensure the target tensor is correctly shaped
-            if label.ndim == 4 and label.shape[1] == 1:
-                label = label.squeeze(1)
-
+            if label.ndim == 4:
+                # Verify that all values along the last dimension are identical.
+                redundant = True
+                # Compare the first slice with every other slice along the last dimension.
+                for i in range(1, label.shape[-1]):
+                    if not torch.equal(label[..., 0], label[..., i]):
+                        redundant = False
+                        break
+                if redundant:
+                    label = label[..., 0]  # Remove the extra dimension.
+                else:
+                    raise ValueError(
+                        f"Label has unexpected shape {label.shape} with varying values along the last dimension.")
             logits, depth_pred = model(img)
             normalized_logits = F.softmax(logits, dim=1)
 
@@ -252,8 +262,19 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
                 depth_true = batch["depth"].to(device)
 
                 # Ensure the target tensor is correctly shaped
-                if label.ndim == 4 and label.shape[1] == 1:
-                    label = label.squeeze(1)
+                if label.ndim == 4:
+                    # Verify that all values along the last dimension are identical.
+                    redundant = True
+                    # Compare the first slice with every other slice along the last dimension.
+                    for i in range(1, label.shape[-1]):
+                        if not torch.equal(label[..., 0], label[..., i]):
+                            redundant = False
+                            break
+                    if redundant:
+                        label = label[..., 0]  # Remove the extra dimension.
+                    else:
+                        raise ValueError(
+                            f"Label has unexpected shape {label.shape} with varying values along the last dimension.")
 
                 logits, depth_pred = model(img)
                 normalized_logits = F.softmax(logits, dim=1)
