@@ -152,7 +152,7 @@ def train(
                     target_size =tuple((int(x) for x in pred_labels.shape[-2:]))
                     track =F.interpolate(track.unsqueeze(1).float(), size=target_size, mode='nearest').long()
 
-
+                assert pred_labels.shape == track.shape
                 # Resizing depth
                 target_size = tuple(int(x) for x in track.shape[-2:])
 
