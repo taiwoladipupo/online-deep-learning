@@ -12,20 +12,20 @@ from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 from .metrics import DetectionMetric
 
-# Set fixed target sizes for segmentation and depth (adjust if needed)
-TARGET_SIZE_SEG = (48, 64)    # e.g. height=48, width=64 for segmentation labels
-TARGET_SIZE_DEPTH = (48, 64)  # e.g. height=48, width=64 for depth maps
+# Fixed target size for detector (as expected by the grader)
+TARGET_SIZE = (96, 128)
+
 
 def train(
-    exp_dir: str = "logs",
-    model_name: str = "Detector",
-    num_epoch: int = 50,
-    lr: float = 1e-3,
-    batch_size: int = 128,
-    seed: int = 2024,
-    alpha=1,
-    beta=0.7,
-    **kwargs,
+        exp_dir: str = "logs",
+        model_name: str = "Detector",
+        num_epoch: int = 50,
+        lr: float = 1e-3,
+        batch_size: int = 128,
+        seed: int = 2024,
+        alpha=1,
+        beta=0.7,
+        **kwargs,
 ):
     # Set device
     if torch.cuda.is_available():
@@ -63,46 +63,45 @@ def train(
 
         model.train()
         for batch in train_data:
-            # Move batch tensors to device.
-            batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v)
-                     for k, v in batch.items()}
+            # Move tensors to device.
+            batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
             img = batch["image"]
-            track = batch["track"]  # ground truth segmentation
-            depth = batch["depth"]  # ground truth depth
+            track = batch["track"]  # Ground truth segmentation; may be [B, H, W] or [B, 1, H, W]
+            depth = batch["depth"]  # Ground truth depth; may be [B, H, W] or [B, 1, H, W]
 
             optimizer.zero_grad()
             pred, pred_depth = model(img)
             # pred: [B, C, H_pred, W_pred], pred_depth: [B, H_pred, W_pred] or [B, 1, H_pred, W_pred]
 
-            # --- Segmentation Resizing ---
-            # Force both predicted segmentation logits and ground truth segmentation to the fixed target.
-            if pred.shape[2:] != TARGET_SIZE_SEG:
-                pred = F.interpolate(pred, size=TARGET_SIZE_SEG, mode='bilinear', align_corners=False)
-            pred_labels = pred.argmax(dim=1)  # Now [B, 48, 64]
+            # ---- Segmentation Resizing ----
+            # Force the segmentation logits to the target size.
+            if pred.shape[2:] != TARGET_SIZE:
+                pred = F.interpolate(pred, size=TARGET_SIZE, mode='bilinear', align_corners=False)
+            pred_labels = pred.argmax(dim=1)  # Now shape: [B, 96, 128]
 
-            # Ensure track is [B, H, W]
+            # Force ground truth segmentation (track) to the target size.
             if track.ndim == 4:
                 track = track.squeeze(1)
-            if track.shape[-2:] != TARGET_SIZE_SEG:
-                track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE_SEG, mode='nearest').squeeze(1).long()
-            assert pred_labels.shape == track.shape, f"Segmentation shape mismatch: {pred_labels.shape} vs {track.shape}"
+            if track.shape[-2:] != TARGET_SIZE:
+                track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE, mode='nearest').squeeze(1).long()
+            assert pred_labels.shape == track.shape, f"Segmentation mismatch: {pred_labels.shape} vs {track.shape}"
 
-            # --- Depth Resizing ---
-            # Force both predicted depth and ground truth depth to the fixed target.
+            # ---- Depth Resizing ----
+            # Force both predicted depth and ground truth depth to the target size.
             if depth.ndim == 3:
                 depth = depth.unsqueeze(1)
             if pred_depth.ndim == 3:
                 pred_depth = pred_depth.unsqueeze(1)
-            if pred_depth.shape[-2:] != TARGET_SIZE_DEPTH:
-                pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
-            if depth.shape[-2:] != TARGET_SIZE_DEPTH:
-                depth = F.interpolate(depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
+            if pred_depth.shape[-2:] != TARGET_SIZE:
+                pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE, mode='bilinear', align_corners=False)
+            if depth.shape[-2:] != TARGET_SIZE:
+                depth = F.interpolate(depth, size=TARGET_SIZE, mode='bilinear', align_corners=False)
             pred_depth = pred_depth.squeeze(1)
             depth = depth.squeeze(1)
-            assert pred_depth.shape == depth.shape, f"Depth shape mismatch: {pred_depth.shape} vs {depth.shape}"
+            assert pred_depth.shape == depth.shape, f"Depth mismatch: {pred_depth.shape} vs {depth.shape}"
 
-            # --- Update Metrics ---
-            # Optionally, clone track for metrics if needed.
+            # ---- Update Metrics ----
+            # Optionally, keep a clone of ground truth segmentation for metrics.
             training_metrics.add(pred_labels, track, pred_depth, depth)
 
             loss = alpha * ce_loss(pred, track) + beta * mse_loss(pred_depth, depth)
@@ -113,30 +112,31 @@ def train(
         model.eval()
         with torch.inference_mode():
             for batch in val_data:
-                batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v)
-                         for k, v in batch.items()}
+                batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
                 img = batch["image"]
                 track = batch["track"]
                 depth = batch["depth"]
 
                 pred, pred_depth = model(img)
-                if pred.shape[2:] != TARGET_SIZE_SEG:
-                    pred = F.interpolate(pred, size=TARGET_SIZE_SEG, mode='bilinear', align_corners=False)
+                if pred.shape[2:] != TARGET_SIZE:
+                    pred = F.interpolate(pred, size=TARGET_SIZE, mode='bilinear', align_corners=False)
                 pred_labels = pred.argmax(dim=1)
+
                 if track.ndim == 4:
                     track = track.squeeze(1)
-                if track.shape[-2:] != TARGET_SIZE_SEG:
-                    track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE_SEG, mode='nearest').squeeze(1).long()
+                if track.shape[-2:] != TARGET_SIZE:
+                    track = F.interpolate(track.unsqueeze(1).float(), size=TARGET_SIZE, mode='nearest').squeeze(
+                        1).long()
                 assert pred_labels.shape == track.shape, f"Validation segmentation mismatch: {pred_labels.shape} vs {track.shape}"
 
                 if depth.ndim == 3:
                     depth = depth.unsqueeze(1)
                 if pred_depth.ndim == 3:
                     pred_depth = pred_depth.unsqueeze(1)
-                if pred_depth.shape[-2:] != TARGET_SIZE_DEPTH:
-                    pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
-                if depth.shape[-2:] != TARGET_SIZE_DEPTH:
-                    depth = F.interpolate(depth, size=TARGET_SIZE_DEPTH, mode='bilinear', align_corners=False)
+                if pred_depth.shape[-2:] != TARGET_SIZE:
+                    pred_depth = F.interpolate(pred_depth, size=TARGET_SIZE, mode='bilinear', align_corners=False)
+                if depth.shape[-2:] != TARGET_SIZE:
+                    depth = F.interpolate(depth, size=TARGET_SIZE, mode='bilinear', align_corners=False)
                 pred_depth = pred_depth.squeeze(1)
                 depth = depth.squeeze(1)
                 assert pred_depth.shape == depth.shape, f"Validation depth mismatch: {pred_depth.shape} vs {depth.shape}"
@@ -169,6 +169,7 @@ def train(
     save_model(model)
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
