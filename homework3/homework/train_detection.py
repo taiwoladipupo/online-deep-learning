@@ -91,6 +91,7 @@ def train(
                 pred_depth = pred_depth.unsqueeze(1)
             if pred_depth.shape[-2:] != target_size_depth:
                 pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
+            depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
             if depth.shape[-2:] != target_size_depth:
                 depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
             # Squeeze to [B, H, W]
@@ -212,8 +213,9 @@ def train(
                     pred_depth = pred_depth.unsqueeze(1)
                 if pred_depth.shape[-2:] != target_size_depth:
                     pred_depth = F.interpolate(pred_depth, size=target_size_depth, mode='bilinear', align_corners=False)
-                if depth.shape[-2:] != target_size_depth:
-                    depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
+                depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
+                # if depth.shape[-2:] != target_size_depth:
+                #     depth = F.interpolate(depth, size=target_size_depth, mode='bilinear', align_corners=False)
                 pred_depth = pred_depth.squeeze(1)
                 depth = depth.squeeze(1)
                 assert pred_depth.shape == depth.shape, f"Validation depth mismatch: {pred_depth.shape} vs {depth.shape}"
