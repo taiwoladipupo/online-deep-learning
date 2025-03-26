@@ -259,10 +259,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         model.train()
         epoch_train_losses = []
         for batch in train_data:
-            img = torch.tensor(batch["image"]).to(device).float()
-            img = batch["image"]
-            if not isinstance(img, torch.Tensor):
-                img = torch.from_numpy(img)
+            img = torch.tensor(batch["image"]).to(device).float()  # Ensure the input tensor is of type float
             if img.ndim == 3:
                 img = img.unsqueeze(0)
 
@@ -297,7 +294,6 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
-
             epoch_train_losses.append(loss.item())
             logger.add_scalar("train/total_loss", loss.item(), global_step)
             global_step += 1
@@ -307,7 +303,7 @@ def train(exp_dir="logs", model_name="detector", num_epoch=100, lr=1e-4,
         depth_errors = []
         confusion_matrix = ConfusionMatrix(num_classes=3)
         with torch.no_grad():
-            for batch in train_data:
+            for batch in val_data:
                 img = torch.tensor(batch["image"]).to(device).float()
                 img = batch["image"]
                 if img.ndim == 3:
