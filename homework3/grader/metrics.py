@@ -71,6 +71,16 @@ class DetectionMetric:
         print("depth_labels shape:", depth_labels.shape)
         depth_error = (depth_preds - depth_labels).abs()
 
+        # If the shapes don't match, resize depth_preds to match depth_labels
+        if depth_preds.shape[1:] != depth_labels.shape[1:]:
+            depth_preds = F.interpolate(
+                depth_preds.unsqueeze(1),
+                size=depth_labels.shape[1:],
+                mode='bilinear',
+                align_corners=False
+            ).squeeze(1)
+            print("After resizing, depth_preds shape:", depth_preds.shape)
+
         # only consider matches on road
         tp_mask = ((preds == labels) & (labels > 0)).float()
         tp_depth_error = depth_error * tp_mask
