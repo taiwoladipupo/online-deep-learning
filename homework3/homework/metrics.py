@@ -52,8 +52,6 @@ class DetectionMetric:
 
     @torch.no_grad()
 
-    import torch.nn.functional as F
-
     def add(
             self,
             preds: torch.Tensor,
