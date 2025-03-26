@@ -61,7 +61,6 @@ def train(
     for epoch in range(num_epoch):
         # clear all available metrics
         training_metrics.reset()
-        validation_metrics.reset()
 
         model.train()
 
@@ -102,7 +101,7 @@ def train(
             depth = depth.squeeze(1)
 
 
-            # logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
+            logits = torch.nn.functional.one_hot(track, num_classes=3).permute(0, 3, 1,2).float()
 
             # print({"img": img.shape,
             #        "depth": depth.shape,
@@ -121,7 +120,7 @@ def train(
             #                                align_corners=False)
             training_metrics.add(pred_labels, track,pred_depth, depth)
 
-            loss = alpha * ce_loss(pred, track) + beta * mse_loss(pred_depth, depth)
+            loss = alpha * ce_loss(pred, logits) + beta * mse_loss(pred_depth, depth)
             loss.backward()
             optimizer.step()
 
