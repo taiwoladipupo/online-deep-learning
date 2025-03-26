@@ -51,6 +51,9 @@ class DetectionMetric:
         self.tp_depth_error_n = 0
 
     @torch.no_grad()
+
+    import torch.nn.functional as F
+
     def add(
             self,
             preds: torch.Tensor,
@@ -79,6 +82,19 @@ class DetectionMetric:
             preds = F.interpolate(preds.unsqueeze(1).float(),
                                   size=labels.shape[-2:],
                                   mode='nearest').squeeze(1).long()
+
+        # Resize both depth_preds and depth_labels to a common target size.
+        target_height = min(depth_preds.shape[-2], depth_labels.shape[-2])
+        target_width = min(depth_preds.shape[-1], depth_labels.shape[-1])
+        target_size = (target_height, target_width)
+        depth_preds = F.interpolate(depth_preds.unsqueeze(1),
+                                    size=target_size,
+                                    mode='bilinear',
+                                    align_corners=False).squeeze(1)
+        depth_labels = F.interpolate(depth_labels.unsqueeze(1),
+                                     size=target_size,
+                                     mode='bilinear',
+                                     align_corners=False).squeeze(1)
 
         # Compute absolute depth error.
         depth_error = (depth_preds - depth_labels).abs()
