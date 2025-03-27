@@ -108,18 +108,6 @@ class Detector(nn.Module):
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    class DecoderBlock(nn.Module):
-        def __init__(self, in_channels: int, out_channels: int):
-            super().__init__()
-            self.conv = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
-                nn.ReLU(),
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1),
-                nn.ReLU(),
-            )
-        def forward(self, x: torch.Tensor):
-            return self.conv(x)
-
     def __init__(
         self,
         in_channels: int = 3,
@@ -130,34 +118,32 @@ class Detector(nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # Initialize the encoder with first convolution that produces layers[0] channels.
+        # Build encoder and track channels using enc_channels.
+        enc_channels = layers[0]
         encoder_layers = [
-            nn.Conv2d(in_channels, layers[0], kernel_size=3, stride=1, padding=1)
+            nn.Conv2d(in_channels, enc_channels, kernel_size=3, stride=1, padding=1)
         ]
-        current_channels = layers[0]
-        decoder_layers = []
-
-        # Keep track of the current number of channels.
-        prev_channels = layers[0]
-        # Build encoder and corresponding decoder blocks.
-        current_channels = layers[0]
         for out_channels in layers[1:]:
-            encoder_layers.append(self.EncoderBlock(current_channels, out_channels))
-            current_channels = out_channels
+            encoder_layers.append(self.EncoderBlock(enc_channels, out_channels))
+            enc_channels = out_channels
+        self.encoder = nn.Sequential(*encoder_layers)
 
-        # Add up-sampling layers in reverse order to restore spatial resolution.
+        # Build decoder and track channels using dec_channels.
+        decoder_layers = []
+        dec_channels = enc_channels
         for out_channels in reversed(layers[:-1]):
             decoder_layers.append(
-                nn.ConvTranspose2d(current_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1)
+                nn.ConvTranspose2d(
+                    dec_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1
+                )
             )
             decoder_layers.append(nn.ReLU())
-            current_channels = out_channels
-
-        self.encoder = nn.Sequential(*encoder_layers)
+            dec_channels = out_channels
         self.decoder = nn.Sequential(*decoder_layers)
 
-        self.seg_head = nn.Conv2d(prev_channels, num_classes, kernel_size=1)
-        self.depth_head = nn.Conv2d(prev_channels, 1, kernel_size=1)
+        # Use the correct channel count for seg_head and depth_head.
+        self.seg_head = nn.Conv2d(enc_channels, num_classes, kernel_size=1)
+        self.depth_head = nn.Conv2d(dec_channels, 1, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
@@ -170,12 +156,7 @@ class Detector(nn.Module):
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         logits, raw_depth = self(x)
         pred = logits.argmax(dim=1)
-        depth = raw_depth
-        return pred, depth
-        # Optional additional post-processing for depth only if needed
-        depth = raw_depth
-
-        return pred, depth
+        return pred, raw_depth
 
 MODEL_FACTORY = {
     "classifier": Classifier,
