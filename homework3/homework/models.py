@@ -150,6 +150,8 @@ class Detector(nn.Module):
             decoder_layers.append(
                 nn.ConvTranspose2d(current_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1)
             )
+            decoder_layers.append(nn.ReLU())
+            current_channels = out_channels
 
         self.encoder = nn.Sequential(*encoder_layers)
         self.decoder = nn.Sequential(*decoder_layers)
