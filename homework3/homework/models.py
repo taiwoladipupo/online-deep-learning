@@ -149,7 +149,9 @@ class Detector(nn.Module):
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
         encoded = self.encoder(z)
         decoded = self.decoder(encoded)
-        logits = self.seg_head(encoded)
+        logits = F.interpolate(
+            logits, size=x.shape[2:], mode='bilinear', align_corners=False
+        )
         raw_depth = torch.sigmoid(self.depth_head(decoded)).squeeze(1)
         return logits, raw_depth
 
