@@ -115,7 +115,7 @@ class Detector(torch.nn.Module):
 
         # TODO: implement
         self.down1 = nn.Sequential(
-            nn.conv2d(in_channels, 16, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels, 16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
         )
