@@ -24,7 +24,7 @@ def train(
         batch_size: int = 128,
         seed: int = 2024,
         alpha=1,
-        beta=0.0,
+        beta=0.3,
         **kwargs,
 ):
     # Set device.
