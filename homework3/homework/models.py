@@ -96,10 +96,39 @@ class Classifier(nn.Module):
 
 
 class Detector(torch.nn.Module):
+    class EncoderBlock(nn.Module):
+        def __init__(self, in_channels: int, out_channels: int):
+            super().__init__()
+            self.conv = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3,stride=2, padding=1),
+                nn.ReLU(),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+                nn.ReLU(),
+
+            )
+
+        def forward(self, x: torch.Tensor):
+            return self.conv(x)
+
+    class DecoderBlock(nn.Module):
+        def __init__(self, in_channels: int, out_channels: int):
+            super().__init__()
+            self.conv = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
+                nn.ReLU(),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1),
+                nn.ReLU(),
+            )
+
+        def forward(self, x: torch.Tensor):
+            return self.conv(x)
+
+
     def __init__(
         self,
         in_channels: int = 3,
         num_classes: int = 3,
+        layers = [32, 64,128],
     ):
         """
         A single model that performs segmentation and depth regression
@@ -114,32 +143,23 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
         # TODO: implement
-        self.down1 = nn.Sequential(
-            nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-        )
+        encoder_layers = [nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1),]
+        decoder_layers = []
 
-        self.down2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-        )
+        for layer in layers:
+            encoder_layers.append(self.EncoderBlock(layer, layer * 2))
+            decoder_layers.append(self.DecoderBlock(layer, 64))
 
-        # Up Sampling
-        self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-        )
-        self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(16, 16, kernel_size=1, stride=2, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-        )
+        for layer in reversed(layers):
+            decoder_layers.append(nn.ConvTranspose2d(layer * 2, kernel_size=3, stride =2, padding=1, output_padding=1))
+            decoder_layers.append(nn.ReLU())
 
-        self.seg_head = nn.Conv2d(16, num_classes, kernel_size=1)
-        self.depth_head = nn.Conv2d(16, 1, kernel_size=1)
+        self.encoder = nn.Sequential(*encoder_layers)
+        self.decoder = nn.Sequential(*decoder_layers)
+
+
+        self.seg_head = nn.Conv2d(layers[0], num_classes, kernel_size=1)
+        self.depth_head = nn.Conv2d(layers[0], 1, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -157,17 +177,12 @@ class Detector(torch.nn.Module):
         # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
-        # down
-        z = self.down1(z)
-        z = self.down2(z)
-
-        # Up
-        z = self.up1(z)
-        z = self.up2(z)
+        encoded_layer = self.encoder(z)
+        decoded_layer = self.decoder(encoded_layer)
 
         #Seg Logits
-        logits = self.seg_head(z)
-        raw_depth =self.depth_head(z).squeeze(1)
+        logits = self.seg_head(encoded_layer)
+        raw_depth = torch.sigmoid(self.depth_head(decoded_layer)).squeeze(1)
         # # TODO: replace with actual forward pass
         # logits = torch.randn(x.size(0), 3, x.size(2), x.size(3))
         # raw_depth = torch.rand(x.size(0), x.size(2), x.size(3))
