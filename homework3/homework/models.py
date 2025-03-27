@@ -134,22 +134,22 @@ class Detector(nn.Module):
         encoder_layers = [
             nn.Conv2d(in_channels, layers[0], kernel_size=3, stride=1, padding=1)
         ]
+        current_channels = layers[0]
         decoder_layers = []
 
         # Keep track of the current number of channels.
         prev_channels = layers[0]
         # Build encoder and corresponding decoder blocks.
-        for layer in layers[1:]:
-            encoder_layers.append(self.EncoderBlock(prev_channels, layer))
-            decoder_layers.append(self.DecoderBlock(layer, prev_channels))
-            prev_channels = layer  # update current channels
+        current_channels = layers[0]
+        for out_channels in layers[1:]:
+            encoder_layers.append(self.EncoderBlock(current_channels, out_channels))
+            current_channels = out_channels
 
         # Add up-sampling layers in reverse order to restore spatial resolution.
-        for layer in reversed(layers):
+        for out_channels in reversed(layers[:-1]):
             decoder_layers.append(
-                nn.ConvTranspose2d(layer * 2, layer, kernel_size=3, stride=2, padding=1, output_padding=1)
+                nn.ConvTranspose2d(current_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1)
             )
-            decoder_layers.append(nn.ReLU())
 
         self.encoder = nn.Sequential(*encoder_layers)
         self.decoder = nn.Sequential(*decoder_layers)
