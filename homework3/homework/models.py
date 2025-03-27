@@ -95,21 +95,18 @@ class Classifier(nn.Module):
 
 
 
-class Detector(torch.nn.Module):
-    # Encoder and Decoder blocks - for downsampling and upsampling respectively
+class Detector(nn.Module):
     class EncoderBlock(nn.Module):
         def __init__(self, in_channels: int, out_channels: int):
             super().__init__()
             self.conv = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=3,stride=2, padding=1),
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),
                 nn.ReLU(),
                 nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
                 nn.ReLU(),
-
             )
-
         def forward(self, x: torch.Tensor):
-            return self.conv(x) # input tensor passes through downsampling
+            return self.conv(x)
 
     class DecoderBlock(nn.Module):
         def __init__(self, in_channels: int, out_channels: int):
@@ -120,93 +117,59 @@ class Detector(torch.nn.Module):
                 nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1),
                 nn.ReLU(),
             )
-
         def forward(self, x: torch.Tensor):
             return self.conv(x)
-
 
     def __init__(
         self,
         in_channels: int = 3,
         num_classes: int = 3,
-        layers = [32, 64,128],
+        layers = [32, 64, 128],
     ):
-        """
-        A single model that performs segmentation and depth regression
-
-        Args:
-            in_channels: int, number of input channels
-            num_classes: int
-        """
         super().__init__()
-
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN))
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
-        # TODO: implement
-        encoder_layers = [nn.Conv2d(in_channels, layers[0], kernel_size=3, stride=1, padding=1),]
+        # Initialize the encoder with first convolution that produces layers[0] channels.
+        encoder_layers = [
+            nn.Conv2d(in_channels, layers[0], kernel_size=3, stride=1, padding=1)
+        ]
         decoder_layers = []
-        # for each entry in the layers list, we create an encoder and decoder block
-        for layer in layers:
-            encoder_layers.append(self.EncoderBlock(layer, layer * 2)) # Hold the output of the encoder block
-            decoder_layers.append(self.DecoderBlock(layer, 64)) # Hold the output of the decoder block
 
-        # Since we are up sampling, we need to reverse the layers
+        # Keep track of the current number of channels.
+        prev_channels = layers[0]
+        # Build encoder and corresponding decoder blocks.
+        for layer in layers[1:]:
+            encoder_layers.append(self.EncoderBlock(prev_channels, layer))
+            decoder_layers.append(self.DecoderBlock(layer, prev_channels))
+            prev_channels = layer  # update current channels
+
+        # Add up-sampling layers in reverse order to restore spatial resolution.
         for layer in reversed(layers):
-            decoder_layers.append(nn.ConvTranspose2d(layer * 2, layer, kernel_size=3, stride =2, padding=1, output_padding=1))
+            decoder_layers.append(
+                nn.ConvTranspose2d(layer * 2, layer, kernel_size=3, stride=2, padding=1, output_padding=1)
+            )
             decoder_layers.append(nn.ReLU())
 
         self.encoder = nn.Sequential(*encoder_layers)
         self.decoder = nn.Sequential(*decoder_layers)
 
-
-        self.seg_head = nn.Conv2d(layers[0], num_classes, kernel_size=1)
-        self.depth_head = nn.Conv2d(layers[0], 1, kernel_size=1)
+        self.seg_head = nn.Conv2d(prev_channels, num_classes, kernel_size=1)
+        self.depth_head = nn.Conv2d(prev_channels, 1, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Used in training, takes an image and returns raw logits and raw depth.
-        This is what the loss functions use as input.
-
-        Args:
-            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
-
-        Returns:
-            tuple of (torch.FloatTensor, torch.FloatTensor):
-                - logits (b, num_classes, h, w)
-                - depth (b, h, w)
-        """
-        # optional: normalizes the input
         z = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-
-        encoded_layer = self.encoder(z)
-        decoded_layer = self.decoder(encoded_layer)
-
-        #Seg Logits
-        logits = self.seg_head(encoded_layer)
-        raw_depth = torch.sigmoid(self.depth_head(decoded_layer)).squeeze(1)
-        # # TODO: replace with actual forward pass
-        # logits = torch.randn(x.size(0), 3, x.size(2), x.size(3))
-        # raw_depth = torch.rand(x.size(0), x.size(2), x.size(3))
-
+        encoded = self.encoder(z)
+        decoded = self.decoder(encoded)
+        logits = self.seg_head(encoded)
+        raw_depth = torch.sigmoid(self.depth_head(decoded)).squeeze(1)
         return logits, raw_depth
 
     def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Used for inference, takes an image and returns class labels and normalized depth.
-        This is what the metrics use as input (this is what the grader will use!).
-
-        Args:
-            x (torch.FloatTensor): image with shape (b, 3, h, w) and vals in [0, 1]
-
-        Returns:
-            tuple of (torch.LongTensor, torch.FloatTensor):
-                - pred: class labels {0, 1, 2} with shape (b, h, w)
-                - depth: normalized depth [0, 1] with shape (b, h, w)
-        """
         logits, raw_depth = self(x)
         pred = logits.argmax(dim=1)
-
+        depth = raw_depth
+        return pred, depth
         # Optional additional post-processing for depth only if needed
         depth = raw_depth
 
