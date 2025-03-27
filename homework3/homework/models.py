@@ -144,13 +144,14 @@ class Detector(torch.nn.Module):
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD))
 
         # TODO: implement
-        encoder_layers = [nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1),]
+        encoder_layers = [nn.Conv2d(in_channels, layers[0], kernel_size=3, stride=1, padding=1),]
         decoder_layers = []
-
+        # for each entry in the layers list, we create an encoder and decoder block
         for layer in layers:
-            encoder_layers.append(self.EncoderBlock(layer, layer * 2))
-            decoder_layers.append(self.DecoderBlock(layer, 64))
+            encoder_layers.append(self.EncoderBlock(layer, layer * 2)) # Hold the output of the encoder block
+            decoder_layers.append(self.DecoderBlock(layer, 64)) # Hold the output of the decoder block
 
+        # Since we are up sampling, we need to reverse the layers
         for layer in reversed(layers):
             decoder_layers.append(nn.ConvTranspose2d(layer * 2, layer, kernel_size=3, stride =2, padding=1, output_padding=1))
             decoder_layers.append(nn.ReLU())
