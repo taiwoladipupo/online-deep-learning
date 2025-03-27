@@ -84,7 +84,7 @@ class DetectionMetric:
         depth_preds = depth_preds.squeeze(1)
         depth_labels = depth_labels.squeeze(1)
 
-        print("After resizing, depth_preds shape:", depth_preds.shape)
+        #
 
         depth_error = (depth_preds - depth_labels).abs()
 
