@@ -142,7 +142,7 @@ class Detector(nn.Module):
         self.decoder = nn.Sequential(*decoder_layers)
 
         # Use the correct channel count for seg_head and depth_head.
-        self.seg_head = nn.Conv2d(enc_channels, num_classes, kernel_size=1)
+        self.seg_head = nn.Conv2d(dec_channels, num_classes, kernel_size=1)
         self.depth_head = nn.Conv2d(dec_channels, 1, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
