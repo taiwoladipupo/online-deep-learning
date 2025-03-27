@@ -129,7 +129,7 @@ class Detector(torch.nn.Module):
         # Up Sampling
         self.up1 = nn.Sequential(
             nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(32),
+            nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
         )
         self.up2 = nn.Sequential(
