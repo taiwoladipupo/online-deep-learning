@@ -94,20 +94,6 @@ class Classifier(nn.Module):
 
 
 
-    def predict(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Used for inference: returns both predicted segmentation (class labels) and depth.
-        Args:
-            x (torch.FloatTensor): input image with shape (B, 3, h, w)
-        Returns:
-            tuple:
-              - pred: predicted class labels with shape (B, h, w)
-              - depth: predicted depth in [0, 1] with shape (B, h, w)
-        """
-        logits, raw_depth = self(x)
-        pred = logits.argmax(dim=1)
-        depth = raw_depth  # Already scaled by Sigmoid
-        return pred, depth
 
 class Detector(torch.nn.Module):
     def __init__(
