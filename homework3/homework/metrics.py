@@ -65,10 +65,10 @@ class DetectionMetric:
             depth_preds (torch.FloatTensor): (b, h, w) with depth predictions
             depth_labels (torch.FloatTensor): (b, h, w) with ground truth depth
         """
-
-        print("Inside DetectionMetric.add:")
-        print("depth_preds shape:", depth_preds.shape)
-        print("depth_labels shape:", depth_labels.shape)
+        #
+        # print("Inside DetectionMetric.add:")
+        # print("depth_preds shape:", depth_preds.shape)
+        # print("depth_labels shape:", depth_labels.shape)
 
         # Ensure depth tensors are 4D: [B, 1, H, W]
         if depth_preds.ndim == 3:
