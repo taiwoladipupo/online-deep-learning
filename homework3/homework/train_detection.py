@@ -15,31 +15,6 @@ from .metrics import DetectionMetric
 # Define the fixed target resolution as expected by the grader.
 TARGET_RES = (96, 128)
 
-# Lovász‑Softmax loss implementation.
-class LovaszSoftmaxLoss(nn.Module):
-    def __init__(self, ignore_index=None):
-        super().__init__()
-        self.ignore_index = ignore_index
-
-    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            logits: [B, C, H, W] tensor with unnormalized scores.
-            labels: [B, H, W] tensor with ground truth class indices.
-        Returns:
-            Loss value (torch.Tensor)
-        """
-        probs = F.softmax(logits, dim=1)
-        loss = lovasz_softmax(probs, labels, ignore_index=self.ignore_index)
-        return loss
-
-def lovasz_softmax(probs: torch.Tensor, labels: torch.Tensor, classes='present', ignore_index=None) -> torch.Tensor:
-    """
-    A placeholder for the Lovász‑Softmax loss function.
-    Replace this with a full implementation or use a well‑tested version.
-    """
-    # Full implementation should compute the Lovász hinge loss over the probabilities.
-    return torch.tensor(0.0, device=probs.device)
 
 def train(
         exp_dir: str = "logs",
@@ -49,7 +24,7 @@ def train(
         batch_size: int = 128,
         seed: int = 2024,
         alpha=1,
-        beta=0.7,
+        beta=0.68,
         **kwargs,
 ):
     # Set device.
@@ -74,9 +49,7 @@ def train(
     train_data = load_data("drive_data/train", shuffle=True, batch_size=batch_size, num_workers=2)
     val_data = load_data("drive_data/val", shuffle=False)
 
-    # ce_loss = nn.CrossEntropyLoss()
-    # implement Lovasz softmax
-    lovasz_loss = LovaszSoftmaxLoss(ignore_index=255)
+    ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -125,7 +98,7 @@ def train(
 
             training_metrics.add(pred_labels, track, pred_depth, depth)
 
-            loss = alpha * lovasz_loss(pred, track) + beta * mse_loss(pred_depth, depth)
+            loss = alpha * ce_loss(pred, track) + beta * mse_loss(pred_depth, depth)
             loss.backward()
             optimizer.step()
             global_step += 1
