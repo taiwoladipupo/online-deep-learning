@@ -96,6 +96,7 @@ class Classifier(nn.Module):
 
 
 class Detector(torch.nn.Module):
+    # Encoder and Decoder blocks - for downsampling and upsampling respectively
     class EncoderBlock(nn.Module):
         def __init__(self, in_channels: int, out_channels: int):
             super().__init__()
@@ -108,7 +109,7 @@ class Detector(torch.nn.Module):
             )
 
         def forward(self, x: torch.Tensor):
-            return self.conv(x)
+            return self.conv(x) # input tensor passes through downsampling
 
     class DecoderBlock(nn.Module):
         def __init__(self, in_channels: int, out_channels: int):
@@ -151,7 +152,7 @@ class Detector(torch.nn.Module):
             decoder_layers.append(self.DecoderBlock(layer, 64))
 
         for layer in reversed(layers):
-            decoder_layers.append(nn.ConvTranspose2d(layer * 2, kernel_size=3, stride =2, padding=1, output_padding=1))
+            decoder_layers.append(nn.ConvTranspose2d(layer * 2, layer, kernel_size=3, stride =2, padding=1, output_padding=1))
             decoder_layers.append(nn.ReLU())
 
         self.encoder = nn.Sequential(*encoder_layers)
