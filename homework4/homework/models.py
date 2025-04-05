@@ -24,7 +24,7 @@ class MLPPlanner(nn.Module):
         # Define Input dim
         # Each input b has 2 coordinates;
         input_dim = n_track * 4 # 2 sides, each with 2 coordinates
-        hidden_dim = 256 # Assuming
+        hidden_dim = 128 # Assuming
         output_dim = n_waypoints * 2 # 2 coordinates for each waypoint
 
 
@@ -35,8 +35,8 @@ class MLPPlanner(nn.Module):
         self.relu = nn.ReLU()
 
         # Seperate output heads for each coordinate
-        self.fc_long  = nn.Linear(hidden_dim, output_dim)
-        self.fc_lat = nn.Linear(hidden_dim, output_dim)
+        self.fc_long  = nn.Linear(hidden_dim, n_waypoints)
+        self.fc_lat = nn.Linear(hidden_dim, n_waypoints)
 
 
     def forward(
