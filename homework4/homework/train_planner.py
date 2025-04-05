@@ -18,7 +18,7 @@ def train(exp_dir: str = "logs",
           lr: float = 1e-3,
           batch_size: int = 128,
           seed: int = 2024,
-          alpha=5.0,
+          alpha=10.0,
           **kwargs):
     # Set device.
     if torch.cuda.is_available():
@@ -71,10 +71,10 @@ def train(exp_dir: str = "logs",
             gt_long = waypoints[..., 0]
             gt_lat = waypoints[..., 1]
 
-            # Compute the loss
-            loss_long = F.mse_loss(pred_long, gt_long)
-            loss_lat = F.mse_loss(pred_lat, gt_lat)
-            loss = loss_long +  alpha * loss_lat
+            # Compute the loss using L1 loss
+            loss_long = F.l1_loss(pred_long, gt_long)
+            loss_lat = F.l1_loss(pred_lat, gt_lat)
+            loss = loss_long + alpha * loss_lat
 
 
             loss.backward()
