@@ -18,6 +18,7 @@ def train(exp_dir: str = "logs",
           lr: float = 1e-3,
           batch_size: int = 128,
           seed: int = 2024,
+          alpha=2.0,
           **kwargs):
     # Set device.
     if torch.cuda.is_available():
@@ -41,6 +42,7 @@ def train(exp_dir: str = "logs",
     train_data = load_data("drive_data/train", shuffle=True, batch_size=batch_size, num_workers=2)
     val_data = load_data("drive_data/val", shuffle=False)
 
+
     loss_fn = nn.MSELoss()  # Assuming the loss function is MSE for regression tasks
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -63,8 +65,18 @@ def train(exp_dir: str = "logs",
             optimizer.zero_grad()
             # forward pass
             pred = model(track_left, track_right)
-            # compute loss
-            loss = loss_fn(pred, waypoints)
+
+            pred_long = pred[..., 0]
+            pred_lat = pred[..., 1]
+            gt_long = waypoints[..., 0]
+            gt_lat = waypoints[..., 1]
+
+            # Compute the loss
+            loss_long = F.mse_loss(pred_long, gt_long)
+            loss_lat = F.mse_loss(pred_lat, gt_lat)
+            loss = loss_long +  alpha * loss_lat
+
+
             loss.backward()
             optimizer.step()
 
@@ -112,7 +124,8 @@ def train(exp_dir: str = "logs",
         logger.add_scalar("val/lateral_error", val_lateral_error, global_step)
 
         # Print metrics
-        print(f"Epoch {epoch + 1}/{num_epoch}, - "
+        if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % 10 == 0:
+            print(f"Epoch {epoch + 1}/{num_epoch}, - "
               f"Train L1 Error: {train_l1_error:.4f} "
               f"Val L1 Error: {val_l1_error:.4f} "
               f"Train Longitudinal Error: {train_longitudinal_error:.4f} "
