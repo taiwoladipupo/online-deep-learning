@@ -36,7 +36,10 @@ class MLPPlanner(nn.Module):
 
         # Seperate output heads for each coordinate
         self.fc_long  = nn.Linear(hidden_dim, n_waypoints)
-        self.fc_lat = nn.Linear(hidden_dim, n_waypoints)
+        # Longitudinal output
+        self.fc_lat = nn.Sequential(nn.Linear(hidden_dim, hidden_dim // 2), nn.ReLU(),
+                                    nn.Linear(hidden_dim // 2, n_waypoints)
+                                    )
 
 
     def forward(
@@ -64,6 +67,7 @@ class MLPPlanner(nn.Module):
         x = x.view(x.size(0), -1)  # shape (b, n_track * 4)
         # Pass through the fc1 with relu activation
         x = self.relu(self.fc1(x))
+
         # Pass through long and lat output heads seperately
         pred_long = self.fc_long(x)
         pred_lat = self.fc_lat(x)
