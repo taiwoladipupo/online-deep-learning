@@ -58,6 +58,7 @@ def train(exp_dir: str = "logs",
             track_left = batch["track_left"]
             track_right = batch["track_right"]
             waypoints = batch["waypoints"]
+            mask = batch["waypoints_mask"]
 
             optimizer.zero_grad()
             # forward pass
@@ -68,7 +69,7 @@ def train(exp_dir: str = "logs",
             optimizer.step()
 
             # Update metrics
-            train_metrics.add(pred, waypoints)
+            train_metrics.add(pred, waypoints, mask)
 
             global_step += 1
 
@@ -82,11 +83,12 @@ def train(exp_dir: str = "logs",
                 track_left = batch["track_left"]
                 track_right = batch["track_right"]
                 waypoints = batch["waypoints"]
+                mask = batch["waypoints_mask"]
 
                 pred = model(track_left, track_right)
 
                 # Update metrics
-                val_metrics.add(pred, waypoints)
+                val_metrics.add(pred, waypoints, mask)
 
         training_metrics = train_metrics.compute()
         validation_metrics = val_metrics.compute()
