@@ -33,10 +33,10 @@ class MLPPlanner(nn.Module):
         self.n_waypoints = n_waypoints
 
         self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.dropout1 = nn.Dropout(0.5)
+        self.dropout1 = nn.Dropout(0.1)
         # self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.dropout2 = nn.Dropout(0.5)
+        self.dropout2 = nn.Dropout(0.1)
 
         # Seperate output heads for each coordinate
         self.fc_long  = nn.Linear(hidden_dim, n_waypoints)
@@ -44,11 +44,11 @@ class MLPPlanner(nn.Module):
         self.fc_lat = nn.Sequential(nn.Linear(hidden_dim, hidden_dim),
                                     nn.BatchNorm1d(hidden_dim),
                                     nn.ReLU(),
-                                    nn.Dropout(0.5),
+                                    nn.Dropout(0.1),
                                     nn.Linear(hidden_dim, hidden_dim // 2),
                                     nn.BatchNorm1d(hidden_dim // 2),
                                     nn.ReLU(),
-                                    nn.Dropout(0.5),
+                                    nn.Dropout(0.1),
                                     nn.Linear(hidden_dim // 2, n_waypoints)
                                     )
 
