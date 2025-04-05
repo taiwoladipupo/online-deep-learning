@@ -18,7 +18,7 @@ def train(exp_dir: str = "logs",
           lr: float = 1e-3,
           batch_size: int = 128,
           seed: int = 2024,
-          alpha=2.0,
+          alpha=4.0,
           **kwargs):
     # Set device.
     if torch.cuda.is_available():

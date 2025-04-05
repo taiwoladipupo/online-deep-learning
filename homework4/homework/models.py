@@ -32,7 +32,11 @@ class MLPPlanner(nn.Module):
         self.n_waypoints = n_waypoints
 
         self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
+        self.relu = nn.ReLU()
+
+        # Seperate output heads for each coordinate
+        self.fc_long  = nn.Linear(hidden_dim, output_dim)
+        self.fc_lat = nn.Linear(hidden_dim, output_dim)
 
 
     def forward(
@@ -59,11 +63,12 @@ class MLPPlanner(nn.Module):
         # Flatten the input
         x = x.view(x.size(0), -1)  # shape (b, n_track * 4)
         # Pass through the fc1 with relu activation
-        x = torch.relu(self.fc1(x))
-        # Pass through the fc2
-        out = self.fc2(x)
-        # Reshape the output to (b, n_waypoints, 2)
-        out = out.view(-1, self.n_waypoints, 2)
+        x = self.relu(self.fc1(x))
+        # Pass through long and lat output heads seperately
+        pred_long = self.fc_long(x)
+        pred_lat = self.fc_lat(x)
+
+        out = torch.stack((pred_long, pred_lat), dim=2)
         return out
 
 class TransformerPlanner(nn.Module):
