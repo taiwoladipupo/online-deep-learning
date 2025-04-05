@@ -2,6 +2,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 HOMEWORK_DIR = Path(__file__).resolve().parent
@@ -32,7 +33,10 @@ class MLPPlanner(nn.Module):
         self.n_waypoints = n_waypoints
 
         self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.relu = nn.ReLU()
+        self.dropout1 = nn.Dropout(0.5)
+        # self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.dropout2 = nn.Dropout(0.5)
 
         # Seperate output heads for each coordinate
         self.fc_long  = nn.Linear(hidden_dim, n_waypoints)
@@ -69,7 +73,10 @@ class MLPPlanner(nn.Module):
         # Flatten the input
         x = x.view(x.size(0), -1)  # shape (b, n_track * 4)
         # Pass through the fc1 with relu activation
-        x = self.relu(self.fc1(x))
+        x = F.relu(self.fc1(x))
+        x = self.dropout1(x)
+        x = F.relu(self.fc2(x))
+        x = self.dropout2(x)
 
         # Pass through long and lat output heads seperately
         pred_long = self.fc_long(x)
