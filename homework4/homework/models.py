@@ -37,9 +37,10 @@ class MLPPlanner(nn.Module):
         # Seperate output heads for each coordinate
         self.fc_long  = nn.Linear(hidden_dim, n_waypoints)
         # Longitudinal output
-        self.fc_lat = nn.Sequential(nn.Linear(hidden_dim, hidden_dim // 2),
+        self.fc_lat = nn.Sequential(nn.Linear(hidden_dim, hidden_dim),
                                     nn.ReLU(),
                                     nn.Linear(hidden_dim, hidden_dim // 2),
+                                    nn.ReLU(),
                                     nn.Linear(hidden_dim // 2, n_waypoints)
                                     )
 
