@@ -150,7 +150,7 @@ def train(exp_dir = "logs",
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            save_model(model, log_dir / f"{model_name}.th")
+            save_model(model)
         else:
             patience_counter += 1
         if patience_counter >= patience:
