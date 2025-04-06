@@ -68,17 +68,19 @@ def train(exp_dir = "logs",
             pred = model(image)
             train_metrics.add(pred, waypoints, waypoints_mask)
 
-            # Loss calculation
-            pred_long = [..., 0]
-            pred_lat = [..., 1]
-            gt_long = [..., 0]
-            gt_lat = [..., 1]
-
             ## Ensuring the predictions and waypoints are tensors
             if isinstance(pred, list):
                 pred = torch.tensor(pred, device=device)
             if isinstance(waypoints, list):
                 waypoints = torch.tensor(waypoints, device=device)
+
+            # Loss calculation
+            pred_long = pred[..., 0]
+            pred_lat = pred[..., 1]
+            gt_long = pred[..., 0]
+            gt_lat = pred[..., 1]
+
+
 
             loss_long = loss_fn(pred_long, gt_long)
             loss_lat = loss_fn(pred_lat, gt_lat)
