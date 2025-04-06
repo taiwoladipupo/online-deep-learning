@@ -177,10 +177,38 @@ class CNNPlanner(torch.nn.Module):
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD), persistent=False)
 
         # Convolutional layers
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        # self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1)
+        # self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
+        # self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        # self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+
+        # Adding average pooling layer
+        self.avg_pool = nn.AdaptiveAvgPool2d((6, 8))  # Output size (6, 8)
 
         self.fc1 = nn.Linear(128 * 6 * 8, 256)
         self.fc2 = nn.Linear(256, n_waypoints * 2) # 2 coordinates for each waypoint
@@ -197,10 +225,13 @@ class CNNPlanner(torch.nn.Module):
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
         # Pass through the convolutional layers
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.conv4(x))
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        # Apply average pooling
+        x = self.avg_pool(x)
+
 
         # Flatten the output
         x = x.view(x.size(0), -1)  # shape (b, 256 * 6 * 8)
