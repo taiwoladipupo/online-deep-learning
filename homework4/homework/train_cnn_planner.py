@@ -144,7 +144,7 @@ def train(exp_dir = "logs",
         scheduler.step()
 
     # Save the model
-    save_model(model, log_dir / "model.pth")
+    save_model(model)
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
 
