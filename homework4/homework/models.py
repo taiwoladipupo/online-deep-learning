@@ -186,25 +186,25 @@ class CNNPlanner(torch.nn.Module):
             nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
         )
         self.conv2 = nn.Sequential(
             nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
         )
         self.conv3 = nn.Sequential(
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
         )
         self.conv4 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
         )
 
         # Adding average pooling layer

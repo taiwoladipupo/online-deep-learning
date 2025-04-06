@@ -18,6 +18,7 @@ def train(exp_dir = "logs",
           batch_size: int = 8,
           seed: int = 2024,
           alpha=10.0,
+          patience: int = 5,
           **kwargs):
     # Set device.
     if torch.cuda.is_available():
@@ -91,8 +92,10 @@ def train(exp_dir = "logs",
             optimizer.step()
 
             global_step += 1
+            best_val_loss = float("inf")
 
         # Evaluate the model on the validation set
+        val_loss = 0.0
         with torch.inference_mode():
             model.eval()
 
@@ -140,8 +143,19 @@ def train(exp_dir = "logs",
                   f"Val Lateral Error: {val_lateral_error:.4f}")
 
 
+
         # Step the scheduler
         scheduler.step()
+        # Early stopping condition
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            save_model(model, log_dir / f"{model_name}.th")
+        else:
+            patience_counter += 1
+        if patience_counter >= patience:
+            print("Early stopping triggered")
+            break
 
     # Save the model
     save_model(model)
