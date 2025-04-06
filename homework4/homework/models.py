@@ -110,8 +110,12 @@ class TransformerPlanner(nn.Module):
         # Build the transformer decoder
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=2)
 
-        # Final layer
-        self.out_proj = nn.Linear(d_model, 2)
+        # Seperate output heads
+        self.out_proj_long = nn.Linear(d_model, 1)
+        self.out_proj_lat = nn.Linear(d_model, 1)
+        #
+        # # Final layer
+        # self.out_proj = nn.Linear(d_model, 2)
 
     def forward(
             self,
@@ -151,8 +155,12 @@ class TransformerPlanner(nn.Module):
 
         # Permute the decoded outputs to (b, n_waypoints, d_model)
         decoded = decoded.permute(1, 0, 2)  # shape (b, n_waypoints, d_model)
+
+        # Seperate output heads for long and lat
+        pred_long = self.out_proj_long(decoded)
+        pred_lat = self.out_proj_lat(decoded)
         # Pass through the final layer to get the waypoints
-        waypoints = self.out_proj(decoded)
+        waypoints = torch.cat((pred_long, pred_lat), dim=2)
         return waypoints
 
 
