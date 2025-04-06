@@ -74,6 +74,12 @@ def train(exp_dir = "logs",
             gt_long = [..., 0]
             gt_lat = [..., 1]
 
+            ## Ensuring the predictions and waypoints are tensors
+            if isinstance(pred, list):
+                pred = torch.tensor(pred, device=device)
+            if isinstance(waypoints, list):
+                waypoints = torch.tensor(waypoints, device=device)
+
             loss_long = loss_fn(pred_long, gt_long)
             loss_lat = loss_fn(pred_lat, gt_lat)
             loss = loss_long + alpha * loss_lat
