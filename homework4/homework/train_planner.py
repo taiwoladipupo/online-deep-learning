@@ -45,6 +45,7 @@ def train(exp_dir: str = "logs",
 
     loss_fn = nn.MSELoss()  # Assuming the loss function is MSE for regression tasks
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
     global_step = 0
     train_metrics = PlannerMetric()
@@ -132,6 +133,9 @@ def train(exp_dir: str = "logs",
               f"Val Longitudinal Error: {val_longitudinal_error:.4f} "
               f"Train Lateral Error: {train_lateral_error:.4f} "
               f"Val Lateral Error: {val_lateral_error:.4f}")
+
+        # step the scheduler
+        scheduler.step()
 
     # Save model
     save_model(model)

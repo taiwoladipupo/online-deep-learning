@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 import torch.utils.tensorboard as tb
 from torch import nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
@@ -52,6 +53,7 @@ def train(
     ce_loss = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler  = ReduceLROnPlateau(optimizer, mode="min", patience=2, factor=0.5, verbose=True)
 
     global_step = 0
     training_metrics = DetectionMetric()
