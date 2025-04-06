@@ -60,6 +60,9 @@ def train(exp_dir = "logs",
         val_metrics.reset()
         model.train()
 
+        epoch_train_loss = 0.0
+        train_batches = 0
+
         for batch in train_data:
             batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
             image = batch["image"]
@@ -91,11 +94,15 @@ def train(exp_dir = "logs",
             loss.backward()
             optimizer.step()
 
+            epoch_train_loss += loss.item()
+            train_batches += 1
             global_step += 1
-            best_val_loss = float("inf")
+
 
         # Evaluate the model on the validation set
-        val_loss = 0.0
+        epoch_val_loss = 0.0
+        val_batches = 0
+
         with torch.inference_mode():
             model.eval()
 
@@ -109,6 +116,17 @@ def train(exp_dir = "logs",
 
                 # Update the validation metrics
                 val_metrics.add(pred, waypoints, waypoints_mask)
+
+                pred_long = pred[..., 0]
+                pred_lat = pred[..., 1]
+                gt_long = waypoints[..., 0]
+                gt_lat = waypoints[..., 1]
+                loss_long = loss_fn(pred_long, gt_long)
+                loss_lat = loss_fn(pred_lat, gt_lat)
+                batch_loss = loss_long + alpha * loss_lat
+                epoch_val_loss += batch_loss.item()
+                val_batches += 1
+        avg_val_loss = epoch_val_loss / val_batches
 
         # Log the metrics
         training_metrics = train_metrics.compute()
@@ -146,9 +164,10 @@ def train(exp_dir = "logs",
 
         # Step the scheduler
         scheduler.step()
+        patience_counter = 0
         # Early stopping condition
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             patience_counter = 0
             save_model(model)
         else:
