@@ -208,9 +208,10 @@ class CNNPlanner(torch.nn.Module):
         )
 
         # Adding average pooling layer
-        self.avg_pool = nn.AdaptiveAvgPool2d((6, 8))  # Output size (6, 8)
+        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))  # Output size (1, 1)
+        self.local_pool = nn.AdaptiveAvgPool2d((4, 4))  # Output size (6, 8)
 
-        self.fc1 = nn.Linear(128 * 6 * 8, 256)
+        self.fc1 = nn.Linear(2048 + 128, 256)
         self.fc2 = nn.Linear(256, n_waypoints * 2) # 2 coordinates for each waypoint
 
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -229,12 +230,11 @@ class CNNPlanner(torch.nn.Module):
         x = self.conv2(x)
         x = self.conv3(x)
         x = self.conv4(x)
+
         # Apply average pooling
-        x = self.avg_pool(x)
-
-
-        # Flatten the output
-        x = x.view(x.size(0), -1)  # shape (b, 256 * 6 * 8)
+        global_pool = self.global_pool(x).view(x.size(0), -1)  # shape (b, 128)
+        local_pool = self.local_pool(x).view(x.size(0), -1)  # shape (b, 128)
+        x = torch.cat((global_pool, local_pool), dim=1)  # shape (b, 128 + 2048)
 
         # Pass through the fully connected layers
         x = F.relu(self.fc1(x))
