@@ -54,6 +54,9 @@ def train(exp_dir = "logs",
     train_metrics = PlannerMetric()
     val_metrics = PlannerMetric()
 
+    best_val_loss = float("inf")
+    patience_counter = 0
+
     for epoch in range(num_epoch):
         # Reset the metrics at the start of each epoch
         train_metrics.reset()
