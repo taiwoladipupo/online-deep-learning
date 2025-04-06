@@ -106,7 +106,7 @@ class TransformerPlanner(nn.Module):
         self.transformer_encoder = nn.Linear(4, d_model)
         # Build aa transformer decoder: a single decoder with 4 attention heads
 
-        decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=4)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=4, dropout=0.2)
         # Build the transformer decoder
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=2)
 
