@@ -16,7 +16,7 @@ def train(exp_dir: str = "logs",
           model_name: str = "mlp_planner",
           num_epoch: int = 50,
           lr: float = 1e-3,
-          batch_size: int = 128,
+          batch_size: int = 8,
           seed: int = 2024,
           alpha=10.0,
           **kwargs):
