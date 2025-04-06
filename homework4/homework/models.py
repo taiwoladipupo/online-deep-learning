@@ -177,13 +177,13 @@ class CNNPlanner(torch.nn.Module):
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD), persistent=False)
 
         # Convolutional layers
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
 
-        self.fc1 = nn.Linear(256 * 6 * 8, 512)
-        self.fc2 = nn.Linear(512, n_waypoints * 2) # 2 coordinates for each waypoint
+        self.fc1 = nn.Linear(128 * 6 * 8, 256)
+        self.fc2 = nn.Linear(256, n_waypoints * 2) # 2 coordinates for each waypoint
 
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
         """
