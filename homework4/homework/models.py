@@ -210,9 +210,13 @@ class CNNPlanner(torch.nn.Module):
         # Adding average pooling layer
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))  # Output size (1, 1)
         self.local_pool = nn.AdaptiveAvgPool2d((4, 4))  # Output size (6, 8)
+        # Adding skip connections
+        self.skip_pool = nn.AdaptiveAvgPool2d((4, 4))  # Output size (1, 1)
 
-        self.fc1 = nn.Linear(2048 + 128, 256)
+        self.fc1 = nn.Linear(2048 + 128 + 512, 256)
         self.fc2 = nn.Linear(256, n_waypoints * 2) # 2 coordinates for each waypoint
+
+
 
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
         """
@@ -226,15 +230,16 @@ class CNNPlanner(torch.nn.Module):
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
         # Pass through the convolutional layers
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
+        x1 = self.conv1(x)
+        x2 = self.conv2(x1)
+        x3 = self.conv3(x2)
+        x4 = self.conv4(x3)
 
         # Apply average pooling
-        global_pool = self.global_pool(x).view(x.size(0), -1)  # shape (b, 128)
-        local_pool = self.local_pool(x).view(x.size(0), -1)  # shape (b, 128)
-        x = torch.cat((global_pool, local_pool), dim=1)  # shape (b, 128 + 2048)
+        global_pool = self.global_pool(x4).view(x4.size(0), -1)  # shape (b, 128)
+        local_pool = self.local_pool(x4).view(x4.size(0), -1)  # shape (b, 128)
+        skip_pool = self.skip_pool(x2).view(x2.size(0), -1)
+        x = torch.cat((skip_pool,global_pool, local_pool), dim=1)  # shape (b, 128 + 2048)
 
         # Pass through the fully connected layers
         x = F.relu(self.fc1(x))
