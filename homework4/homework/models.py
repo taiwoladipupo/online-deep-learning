@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 HOMEWORK_DIR = Path(__file__).resolve().parent
 INPUT_MEAN = [0.2788, 0.2657, 0.2629]
 INPUT_STD = [0.2064, 0.1944, 0.2252]
@@ -12,9 +11,9 @@ INPUT_STD = [0.2064, 0.1944, 0.2252]
 
 class MLPPlanner(nn.Module):
     def __init__(
-        self,
-        n_track: int = 10,
-        n_waypoints: int = 3,
+            self,
+            n_track: int = 10,
+            n_waypoints: int = 3,
     ):
         """
         Args:
@@ -24,10 +23,9 @@ class MLPPlanner(nn.Module):
         super().__init__()
         # Define Input dim
         # Each input b has 2 coordinates;
-        input_dim = n_track * 4 # 2 sides, each with 2 coordinates
-        hidden_dim = 512 # Assuming
-        output_dim = n_waypoints * 2 # 2 coordinates for each waypoint
-
+        input_dim = n_track * 4  # 2 sides, each with 2 coordinates
+        hidden_dim = 512  # Assuming
+        output_dim = n_waypoints * 2  # 2 coordinates for each waypoint
 
         self.n_track = n_track
         self.n_waypoints = n_waypoints
@@ -39,7 +37,7 @@ class MLPPlanner(nn.Module):
         self.dropout2 = nn.Dropout(0.2)
 
         # Seperate output heads for each coordinate
-        self.fc_long  = nn.Linear(hidden_dim, n_waypoints)
+        self.fc_long = nn.Linear(hidden_dim, n_waypoints)
         # Longitudinal output
         self.fc_lat = nn.Sequential(nn.Linear(hidden_dim, hidden_dim),
                                     nn.BatchNorm1d(hidden_dim),
@@ -52,12 +50,11 @@ class MLPPlanner(nn.Module):
                                     nn.Linear(hidden_dim // 2, n_waypoints)
                                     )
 
-
     def forward(
-        self,
-        track_left: torch.Tensor,
-        track_right: torch.Tensor,
-        **kwargs,
+            self,
+            track_left: torch.Tensor,
+            track_right: torch.Tensor,
+            **kwargs,
     ) -> torch.Tensor:
         """
         Predicts waypoints from the left and right boundaries of the track.
@@ -89,22 +86,25 @@ class MLPPlanner(nn.Module):
         out = torch.stack((pred_long, pred_lat), dim=2)
         return out
 
+
 class TransformerPlanner(nn.Module):
     def __init__(
-        self,
-        n_track: int = 10,
-        n_waypoints: int = 3,
-        d_model: int = 64,
+            self,
+            n_track: int = 10,
+            n_waypoints: int = 3,
+            d_model: int = 64,
     ):
         super().__init__()
 
         self.n_track = n_track
         self.n_waypoints = n_waypoints
+        self.d_model = d_model
+
         # Learned query embeddings for each waypoints
         self.query_embed = nn.Embedding(n_waypoints, d_model)
         # Linear encoder to project each track point to a higher dimension
-        self.transformer_encoder = nn.Linear(2, d_model)
-        #Build aa transformer decoder: a single decoder with 4 attention heads
+        self.transformer_encoder = nn.Linear(4, d_model)
+        # Build aa transformer decoder: a single decoder with 4 attention heads
 
         decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=4)
         # Build the transformer decoder
@@ -113,16 +113,11 @@ class TransformerPlanner(nn.Module):
         # Final layer
         self.out_proj = nn.Linear(d_model, 2)
 
-
-
-
-
-
     def forward(
-        self,
-        track_left: torch.Tensor,
-        track_right: torch.Tensor,
-        **kwargs,
+            self,
+            track_left: torch.Tensor,
+            track_right: torch.Tensor,
+            **kwargs,
     ) -> torch.Tensor:
         """
         Predicts waypoints from the left and right boundaries of the track.
@@ -161,11 +156,10 @@ class TransformerPlanner(nn.Module):
         return waypoints
 
 
-
 class CNNPlanner(torch.nn.Module):
     def __init__(
-        self,
-        n_waypoints: int = 3,
+            self,
+            n_waypoints: int = 3,
     ):
         super().__init__()
 
@@ -196,9 +190,9 @@ MODEL_FACTORY = {
 
 
 def load_model(
-    model_name: str,
-    with_weights: bool = False,
-    **model_kwargs,
+        model_name: str,
+        with_weights: bool = False,
+        **model_kwargs,
 ) -> torch.nn.Module:
     """
     Called by the grader to load a pre-trained model by name
