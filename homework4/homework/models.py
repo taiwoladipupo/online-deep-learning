@@ -176,6 +176,15 @@ class CNNPlanner(torch.nn.Module):
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN), persistent=False)
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD), persistent=False)
 
+        # Convolutional layers
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
+
+        self.fc1 = nn.Linear(256 * 6 * 8, 512)
+        self.fc2 = nn.Linear(512, n_waypoints * 2) # 2 coordinates for each waypoint
+
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
         """
         Args:
@@ -187,7 +196,22 @@ class CNNPlanner(torch.nn.Module):
         x = image
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
 
-        raise NotImplementedError
+        # Pass through the convolutional layers
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
+
+        # Flatten the output
+        x = x.view(x.size(0), -1)  # shape (b, 256 * 6 * 8)
+
+        # Pass through the fully connected layers
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)  # shape (b, n_waypoints * 2)
+
+        # Reshape the output to (b, n_waypoints, 2)
+        waypoints = x.view(x.size(0),  self.n_waypoints, 2)
+        return waypoints
 
 
 MODEL_FACTORY = {
