@@ -77,8 +77,8 @@ def train(exp_dir = "logs",
             # Loss calculation
             pred_long = pred[..., 0]
             pred_lat = pred[..., 1]
-            gt_long = pred[..., 0]
-            gt_lat = pred[..., 1]
+            gt_long = waypoints[..., 0]
+            gt_lat = waypoints[..., 1]
 
 
 
