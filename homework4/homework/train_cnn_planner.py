@@ -10,7 +10,7 @@ from torch import nn
 from .metrics import PlannerMetric
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
-
+from torchvision import transforms as T
 def train(exp_dir = "logs",
           model_name: str = "cnn_planner",
           num_epoch: int = 50,
@@ -34,6 +34,12 @@ def train(exp_dir = "logs",
 
     log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
     logger = tb.SummaryWriter(log_dir)
+
+    # augmentation
+    augment = T.Compose([
+        T.RandomApply([T.ColorJitter(0.2, 0.2, 0.2, 0.1)], p=0.7),
+        T.RandomAffine(0, translate=(0.05, 0.0)),
+    ])
 
     # Initialize the model
     model = load_model(model_name, **kwargs)
@@ -69,6 +75,7 @@ def train(exp_dir = "logs",
         for batch in train_data:
             batch = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
             image = batch["image"]
+            image = augment(image)
             waypoints = batch["waypoints"]
             waypoints_mask = batch["waypoints_mask"]
 

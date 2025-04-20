@@ -164,90 +164,67 @@ class TransformerPlanner(nn.Module):
         return waypoints
 
 
-class CNNPlanner(torch.nn.Module):
-    def __init__(
-            self,
-            n_waypoints: int = 3,
-    ):
-        super().__init__()
+# models.py (CNNPlanner)
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision.models import resnet18
 
+# ImageNet stats
+INPUT_MEAN = [0.485, 0.456, 0.406]
+INPUT_STD  = [0.229, 0.224, 0.225]
+
+class CNNPlanner(nn.Module):
+    def __init__(self, n_waypoints: int = 3):
+        super().__init__()
         self.n_waypoints = n_waypoints
 
-        self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN), persistent=False)
-        self.register_buffer("input_std", torch.as_tensor(INPUT_STD), persistent=False)
+        # normalize RGB
+        self.register_buffer("input_mean", torch.tensor(INPUT_MEAN).view(1,3,1,1))
+        self.register_buffer("input_std",  torch.tensor(INPUT_STD).view(1,3,1,1))
 
-        # Convolutional layers
-        # self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1)
-        # self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
-        # self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        # self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        # pretrained ResNet-18 backbone
+        backbone = resnet18(pretrained=True)
+        orig_conv = backbone.conv1
 
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(),
-            nn.Dropout(0.2),
+        # coordconv: expand conv1 to 5 channels
+        backbone.conv1 = nn.Conv2d(5,
+                                   orig_conv.out_channels,
+                                   kernel_size=orig_conv.kernel_size,
+                                   stride=orig_conv.stride,
+                                   padding=orig_conv.padding,
+                                   bias=False)
+        with torch.no_grad():
+            backbone.conv1.weight[:, :3] = orig_conv.weight
+            backbone.conv1.weight[:, 3:] = 0
+
+        # strip off the avgpool+fc
+        self.backbone = nn.Sequential(
+            backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
+            backbone.layer1, backbone.layer2, backbone.layer3, backbone.layer4
         )
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-        )
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-        )
-        self.conv4 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-        )
+        feat_dim = backbone.fc.in_features  # should be 512
 
-        # Adding average pooling layer
-        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))  # Output size (1, 1)
-        self.local_pool = nn.AdaptiveAvgPool2d((4, 4))  # Output size (6, 8)
-        # Adding skip connections
-        self.skip_pool = nn.AdaptiveAvgPool2d((4, 4))  # Output size (1, 1)
-
-        self.fc1 = nn.Linear(2048 + 128 + 512, 256)
-        self.fc2 = nn.Linear(256, n_waypoints * 2) # 2 coordinates for each waypoint
-
-
+        # head
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc1 = nn.Linear(feat_dim, 256)
+        self.fc2 = nn.Linear(256, n_waypoints * 2)
 
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
-        """
-        Args:
-            image (torch.FloatTensor): shape (b, 3, h, w) and vals in [0, 1]
+        # normalize RGB
+        x = (image - self.input_mean) / self.input_std
 
-        Returns:
-            torch.FloatTensor: future waypoints with shape (b, n, 2)
-        """
-        x = image
-        x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
+        # build coord channels
+        B,_,H,W = x.shape
+        xs = torch.linspace(-1,1,W,device=x.device).view(1,1,1,W).expand(B,1,H,W)
+        ys = torch.linspace(-1,1,H,device=x.device).view(1,1,H,1).expand(B,1,H,W)
+        x  = torch.cat([x, xs, ys], dim=1)  # (B,5,H,W)
 
-        # Pass through the convolutional layers
-        x1 = self.conv1(x)
-        x2 = self.conv2(x1)
-        x3 = self.conv3(x2)
-        x4 = self.conv4(x3)
-
-        # Apply average pooling
-        global_pool = self.global_pool(x4).view(x4.size(0), -1)  # shape (b, 128)
-        local_pool = self.local_pool(x4).view(x4.size(0), -1)  # shape (b, 128)
-        skip_pool = self.skip_pool(x2).view(x2.size(0), -1)
-        x = torch.cat((skip_pool,global_pool, local_pool), dim=1)  # shape (b, 128 + 2048)
-
-        # Pass through the fully connected layers
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)  # shape (b, n_waypoints * 2)
-
-        # Reshape the output to (b, n_waypoints, 2)
-        waypoints = x.view(x.size(0),  self.n_waypoints, 2)
-        return waypoints
+        f = self.backbone(x)
+        g = self.global_pool(f).view(B, -1)  # (B,512)
+        h = F.relu(self.fc1(g))
+        out = self.fc2(h).view(B, self.n_waypoints, 2)
+        return out
 
 
 MODEL_FACTORY = {
