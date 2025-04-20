@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet18
+from torchvision.models import mobilenet_v2, MobileNet_V2_Weights
 
 HOMEWORK_DIR = Path(__file__).resolve().parent
 INPUT_MEAN = [0.2788, 0.2657, 0.2629]
@@ -175,27 +175,26 @@ class CNNPlanner(nn.Module):
         self.register_buffer("input_mean", torch.tensor(INPUT_MEAN).view(1,3,1,1))
         self.register_buffer("input_std",  torch.tensor(INPUT_STD).view(1,3,1,1))
 
-        # pretrained ResNet-18 backbone
-        backbone = resnet18(pretrained=True)
-        orig_conv = backbone.conv1
-
-        # coordconv: expand conv1 to 5 channels
-        backbone.conv1 = nn.Conv2d(5,
-                                   orig_conv.out_channels,
-                                   kernel_size=orig_conv.kernel_size,
-                                   stride=orig_conv.stride,
-                                   padding=orig_conv.padding,
-                                   bias=False)
-        with torch.no_grad():
-            backbone.conv1.weight[:, :3] = orig_conv.weight
-            backbone.conv1.weight[:, 3:] = 0
-
-        # strip off the avgpool+fc
-        self.backbone = nn.Sequential(
-            backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
-            backbone.layer1, backbone.layer2, backbone.layer3, backbone.layer4
+        # load a small pretrained MobileNetV2 backbone
+        mb2 = mobilenet_v2(weights=MobileNet_V2_Weights.DEFAULT)
+        # replace initial conv to accept 5 channels (RGB + X/Y coord)
+        orig = mb2.features[0][0]  # Conv2d layer
+        mb2.features[0][0] = nn.Conv2d(
+            5,
+            orig.out_channels,
+            kernel_size=orig.kernel_size,
+            stride=orig.stride,
+            padding=orig.padding,
+            bias=False
         )
-        feat_dim = backbone.fc.in_features  # should be 512
+        # copy the RGB weights, zero‐init the XY weights
+        with torch.no_grad():
+            mb2.features[0][0].weight[:, :3] = orig.weight
+            mb2.features[0][0].weight[:, 3:] = 0
+
+        # strip off classifier—keep only features
+        self.backbone = mb2.features
+        feat_dim = mb2.last_channel  # 1280 for MobileNetV2
 
         # head
         self.global_pool = nn.AdaptiveAvgPool2d(1)
@@ -206,18 +205,18 @@ class CNNPlanner(nn.Module):
         # normalize RGB
         x = (image - self.input_mean) / self.input_std
 
-        # build coord channels
-        B,_,H,W = x.shape
-        xs = torch.linspace(-1,1,W,device=x.device).view(1,1,1,W).expand(B,1,H,W)
-        ys = torch.linspace(-1,1,H,device=x.device).view(1,1,H,1).expand(B,1,H,W)
-        x  = torch.cat([x, xs, ys], dim=1)  # (B,5,H,W)
+        # build coordconv channels
+        B, _, H, W = x.shape
+        xs = torch.linspace(-1, 1, W, device=x.device).view(1, 1, 1, W).expand(B, 1, H, W)
+        ys = torch.linspace(-1, 1, H, device=x.device).view(1, 1, H, 1).expand(B, 1, H, W)
+        x = torch.cat([x, xs, ys], dim=1)  # -> (B,5,H,W)
 
+        # backbone -> pool -> head
         f = self.backbone(x)
-        g = self.global_pool(f).view(B, -1)  # (B,512)
+        g = self.global_pool(f).view(B, -1)
         h = F.relu(self.fc1(g))
         out = self.fc2(h).view(B, self.n_waypoints, 2)
         return out
-
 
 MODEL_FACTORY = {
     "mlp_planner": MLPPlanner,
