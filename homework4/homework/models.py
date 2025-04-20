@@ -3,6 +3,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import resnet18
 
 HOMEWORK_DIR = Path(__file__).resolve().parent
 INPUT_MEAN = [0.2788, 0.2657, 0.2629]
@@ -164,15 +165,6 @@ class TransformerPlanner(nn.Module):
         return waypoints
 
 
-# models.py (CNNPlanner)
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torchvision.models import resnet18
-
-# ImageNet stats
-INPUT_MEAN = [0.485, 0.456, 0.406]
-INPUT_STD  = [0.229, 0.224, 0.225]
 
 class CNNPlanner(nn.Module):
     def __init__(self, n_waypoints: int = 3):
