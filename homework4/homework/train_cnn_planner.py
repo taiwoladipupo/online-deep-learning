@@ -171,7 +171,7 @@ def train(exp_dir = "logs",
                   f"Train Lateral Error: {train_lateral_error:.4f} "
                   f"Val Lateral Error: {val_lateral_error:.4f}")
         # once both criteria are satisfied, save the model
-        if not best_val_flag and val_longitudinal_error < 0.30 and val_lateral_error < 0.45:
+        if not best_val_flag and val_longitudinal_error < 0.27 and val_lateral_error < 0.45:
             save_model(model)
             torch.save(model.state_dict(), log_dir / f"{model_name}.th")
             print(f"Thresholds met at epoch {epoch + 1}, saved to {log_dir} / {model_name}.th")
