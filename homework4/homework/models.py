@@ -167,18 +167,23 @@ class TransformerPlanner(nn.Module):
 
 
 class CNNPlanner(nn.Module):
-    def __init__(self, n_waypoints: int = 3):
+    def __init__(
+        self,
+        n_waypoints: int = 3,
+        pretrained_backbone: bool = False,
+    ):
         super().__init__()
         self.n_waypoints = n_waypoints
 
-        # normalize RGB
-        self.register_buffer("input_mean", torch.tensor(INPUT_MEAN).view(1,3,1,1))
-        self.register_buffer("input_std",  torch.tensor(INPUT_STD).view(1,3,1,1))
+        # RGB normalization
+        self.register_buffer("input_mean", torch.tensor(INPUT_MEAN).view(1, 3, 1, 1))
+        self.register_buffer("input_std",  torch.tensor(INPUT_STD).view(1, 3, 1, 1))
 
-        # load a small pretrained MobileNetV2 backbone
-        mb2 = mobilenet_v2(weights=MobileNet_V2_Weights.DEFAULT)
-        # replace initial conv to accept 5 channels (RGB + X/Y coord)
-        orig = mb2.features[0][0]  # Conv2d layer
+        # load Mobilenet v2
+        weights = MobileNet_V2_Weights.DEFAULT if pretrained_backbone else None
+        mb2 = mobilenet_v2(weights=weights)
+        # patch first conv to accept 5 channels (RGB + coords)
+        orig = mb2.features[0][0]
         mb2.features[0][0] = nn.Conv2d(
             5,
             orig.out_channels,
@@ -187,31 +192,27 @@ class CNNPlanner(nn.Module):
             padding=orig.padding,
             bias=False
         )
-        # copy the RGB weights, zero‐init the XY weights
         with torch.no_grad():
             mb2.features[0][0].weight[:, :3] = orig.weight
             mb2.features[0][0].weight[:, 3:] = 0
 
-        # strip off classifier—keep only features
-        self.backbone = mb2.features
-        feat_dim = mb2.last_channel  # 1280 for MobileNetV2
-
-        # head
+        # backbone and head
+        self.backbone    = mb2.features
+        feat_dim         = mb2.last_channel
         self.global_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Linear(feat_dim, 256)
-        self.fc2 = nn.Linear(256, n_waypoints * 2)
+        self.fc1         = nn.Linear(feat_dim, 256)
+        self.fc2         = nn.Linear(256, n_waypoints * 2)
 
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
-        # normalize RGB
+        # normalize
         x = (image - self.input_mean) / self.input_std
+        # coordconv channels
+        B, C, H, W = x.shape
+        xs = torch.linspace(-1, 1, W, device=x.device).view(1,1,1,W).expand(B,1,H,W)
+        ys = torch.linspace(-1, 1, H, device=x.device).view(1,1,H,1).expand(B,1,H,W)
+        x = torch.cat([x, xs, ys], dim=1)
 
-        # build coordconv channels
-        B, _, H, W = x.shape
-        xs = torch.linspace(-1, 1, W, device=x.device).view(1, 1, 1, W).expand(B, 1, H, W)
-        ys = torch.linspace(-1, 1, H, device=x.device).view(1, 1, H, 1).expand(B, 1, H, W)
-        x = torch.cat([x, xs, ys], dim=1)  # -> (B,5,H,W)
-
-        # backbone -> pool -> head
+        # forward
         f = self.backbone(x)
         g = self.global_pool(f).view(B, -1)
         h = F.relu(self.fc1(g))
@@ -226,32 +227,27 @@ MODEL_FACTORY = {
 
 
 def load_model(
-        model_name: str,
-        with_weights: bool = False,
-        **model_kwargs,
+    model_name: str,
+    with_weights: bool = False,
+    **model_kwargs,
 ) -> torch.nn.Module:
-    """
-    Called by the grader to load a pre-trained model by name
-    """
-    m = MODEL_FACTORY[model_name](**model_kwargs)
+    # handle CNN separately to avoid forced download in grader
+    if model_name == "cnn_planner":
+        pretrained = model_kwargs.pop("pretrained_backbone", False)
+        m = CNNPlanner(
+            n_waypoints=model_kwargs.get("n_waypoints", 3),
+            pretrained_backbone=pretrained,
+        )
+    else:
+        m = MODEL_FACTORY[model_name](**model_kwargs)
 
     if with_weights:
-        model_path = HOMEWORK_DIR / f"{model_name}.th"
-        assert model_path.exists(), f"{model_path.name} not found"
+        ckpt = HOMEWORK_DIR / f"{model_name}.th"
+        assert ckpt.exists(), f"{ckpt.name} not found"
+        m.load_state_dict(torch.load(ckpt, map_location="cpu"))
 
-        try:
-            m.load_state_dict(torch.load(model_path, map_location="cpu"))
-        except RuntimeError as e:
-            raise AssertionError(
-                f"Failed to load {model_path.name}, make sure the default model arguments are set correctly"
-            ) from e
-
-    # limit model sizes since they will be zipped and submitted
-    model_size_mb = calculate_model_size_mb(m)
-
-    if model_size_mb > 20:
-        raise AssertionError(f"{model_name} is too large: {model_size_mb:.2f} MB")
-
+    size_mb = calculate_model_size_mb(m)
+    assert size_mb <= 20, f"{model_name} is too large: {size_mb:.2f} MB"
     return m
 
 
