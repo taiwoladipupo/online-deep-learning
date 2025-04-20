@@ -65,7 +65,7 @@ def train(
     epochs_no_improve = 0
 
     for epoch in range(1, num_epoch + 1):
-        # ——— TRAIN ———
+        # Trainng
         model.train()
         train_metrics.reset()
         for batch in train_loader:
@@ -107,21 +107,30 @@ def train(
 
         val_loss /= len(val_loader)
 
-        # ——— LOG & PRINT ———
-        tm = train_metrics.compute()
-        vm = val_metrics.compute()
-        print(
-            f"Epoch {epoch:2d}/{num_epoch} | "
-            f"Train  L1={tm['l1_error']:.3f} Long={tm['longitudinal_error']:.3f} Lat={tm['lateral_error']:.3f} | "
-            f"Val    L1={vm['l1_error']:.3f} Long={vm['longitudinal_error']:.3f} Lat={vm['lateral_error']:.3f}"
-        )
-        for tag, val in [
-            ("train/l1", tm["l1_error"]), ("train/long", tm["longitudinal_error"]), ("train/lat", tm["lateral_error"]),
-            ("val/l1",   vm["l1_error"]),   ("val/long",   vm["longitudinal_error"]),   ("val/lat",   vm["lateral_error"]),
-        ]:
-            logger.add_scalar(tag, val, epoch)
+        # logging
+        if epoch % 10 == 0 or epoch == num_epoch:
+            tm = train_metrics.compute()
+            vm = val_metrics.compute()
+            print(
+                f"Epoch {epoch:03d}/{num_epoch:03d} | "
+                f"Train Loss: {tm['loss']:.4f} | "
+                f"Val Loss: {vm['loss']:.4f} | "
+                f"Train Long Error: {tm['long_error']:.4f} | "
+                f"Val Long Error: {vm['long_error']:.4f} | "
+                f"Train Lat Error: {tm['lat_error']:.4f} | "
+                f"Val Lat Error: {vm['lat_error']:.4f}"
+            )
+            for tag, val in [
+                ("train/loss", tm["loss"]),
+                ("val/loss", vm["loss"]),
+                ("train/long_error", tm["long_error"]),
+                ("val/long_error", vm["long_error"]),
+                ("train/lat_error", tm["lat_error"]),
+                ("val/lat_error", vm["lat_error"]),
+            ]:
+                logger.add_scalar(tag, val, epoch)
 
-        # ——— EARLY STOPPING / SAVE ———
+        # early stoppping / save
         if val_loss < best_val:
             best_val = val_loss
             epochs_no_improve = 0
